@@ -65,8 +65,7 @@ def launch_lerobot_train(
         output_dir = get_unique_output_dir(output_dir)
 
     cmd = [
-        sys.executable, "-c",
-        "import lerobot.datasets.utils as u, pandas as pd; u.check_version_compatibility = lambda *a, **k: None; _orig = u.load_tasks; u.load_tasks = lambda d: (_orig(d) if (d / 'meta/tasks.parquet').exists() else (d / 'meta/tasks.parquet').parent.mkdir(parents=True, exist_ok=True) or pd.DataFrame({'task_index': [0]}, index=['place the red block in blue bin']).to_parquet(d / 'meta/tasks.parquet') or pd.DataFrame({'task_index': [0]}, index=['place the red block in blue bin'])); from lerobot.scripts.lerobot_train import main; main()",
+        sys.executable, "-m", "lerobot.scripts.lerobot_train",
         f"--dataset.repo_id={repo_id}",
     ]
 
