@@ -57,6 +57,7 @@ def launch_lerobot_train(
     save_freq: Optional[int] = None,
     resume: bool = False,
     dry_run: bool = False,
+    num_workers: int = 0,
 ):
     if output_dir is None:
         output_dir = f"outputs/train/{policy_type}_piper"
@@ -66,7 +67,7 @@ def launch_lerobot_train(
 
     cmd = [
         sys.executable, "-c",
-        "import lerobot.datasets.utils as u, pandas as pd; u.check_version_compatibility = lambda *a, **k: None; _orig_nest = u.load_nested_dataset; u.load_nested_dataset = lambda d, features=None, episodes=None: _orig_nest(d, features=None, episodes=episodes); u.load_episodes = lambda d: u.load_nested_dataset(d / u.EPISODES_DIR, features=None); from lerobot.scripts.lerobot_train import main; main()",
+        "import lerobot.datasets.utils as u, lerobot.datasets.video_utils as vu, lerobot.datasets.dataset_metadata as dm, torch, numpy as np, av; u.check_version_compatibility = lambda *a, **k: None; _orig_ft = dm.LeRobotDatasetMetadata.features.fget; dm.LeRobotDatasetMetadata.features = property(lambda self: {k: v for k, v in _orig_ft(self).items() if 'depth' not in k}); _orig_dec = vu.decode_video_frames_pyav; vu.decode_video_frames_pyav = lambda vp, ts, tol, log_loaded_timestamps=False, return_uint8=False, is_depth=False: (torch.stack([(torch.from_numpy(f.to_ndarray(format='gray16le').astype(np.int32))) for f in av.open(str(vp)).decode(av.open(str(vp)).streams.video[0])][:len(ts)]) if is_depth else _orig_dec(vp, ts, tol, log_loaded_timestamps=log_loaded_timestamps, return_uint8=return_uint8, is_depth=is_depth)); from lerobot.scripts.lerobot_train import main; main()",
         f"--dataset.repo_id={repo_id}",
     ]
 
@@ -81,6 +82,7 @@ def launch_lerobot_train(
         f"--output_dir={output_dir}",
         f"--job_name={policy_type}_piper_training",
         f"--policy.device={device}",
+        f"--num_workers={num_workers}",
     ])
 
     if save_freq is not None:
@@ -98,6 +100,8 @@ def launch_lerobot_train(
         cmd.append(f"--rename_map={rename_map}")
     elif pretrained_path:
         cmd.append(f"--policy.pretrained_path={pretrained_path}")
+        rename_map = '{"observation.images.wrist": "observation.images.camera1", "observation.images.extrinsic": "observation.images.camera2", "observation.images.topdown": "observation.images.camera3"}'
+        cmd.append(f"--rename_map={rename_map}")
 
     if push_to_hub:
         if not policy_repo_id:
@@ -189,6 +193,8 @@ def main():
                         help="Interval in steps at which intermediate checkpoints are saved (default: 20000)")
     parser.add_argument("--resume", action="store_true", default=False,
                         help="Resume training from an existing output directory checkpoint")
+    parser.add_argument("--num-workers", type=int, default=0,
+                        help="Number of DataLoader workers (default: 0 for process-safe PyAV depth decoding)")
     parser.add_argument("--dry-run", action="store_true", default=False,
                         help="Print command without executing")
     args = parser.parse_args()
@@ -220,6 +226,7 @@ def main():
         save_freq=args.save_freq,
         resume=args.resume,
         dry_run=args.dry_run,
+        num_workers=args.num_workers,
     )
 
 

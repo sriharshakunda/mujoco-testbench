@@ -71,6 +71,8 @@ wheels/
 # Virtual environments
 .venv
 venv/
+venv_local/
+env_test/
 ENV/
 env/
 
