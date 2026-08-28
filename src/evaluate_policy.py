@@ -51,6 +51,7 @@ def evaluate_lerobot_policy(
     save_video: bool = False,
     video_dir: str = "eval_videos",
     device: Optional[str] = None,
+    num_inference_steps: Optional[int] = 10,
 ):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -80,6 +81,15 @@ def evaluate_lerobot_policy(
     policy.to(device)
     policy.eval()
     print(f"✓ Loaded LeRobot {policy.__class__.__name__} from {checkpoint_path}\n")
+
+    if device == "cuda":
+        torch.backends.cudnn.benchmark = True
+
+    # Fast evaluation optimization for Diffusion Policy (reduces 100 DDPM iterations to num_inference_steps)
+    if isinstance(policy, DiffusionPolicy):
+        infer_steps = num_inference_steps if num_inference_steps is not None else 5
+        policy.num_inference_steps = infer_steps
+        print(f"⚡ Optimized Diffusion Policy inference: reduced DDPM denoising steps to {infer_steps} for 30 FPS real-time evaluation")
 
     # Load preprocessor & postprocessor (handles normalization / unnormalization)
     from lerobot.policies.factory import make_pre_post_processors
@@ -193,7 +203,11 @@ def evaluate_lerobot_policy(
 
                 # 2. Select next action from LeRobot policy
                 with torch.no_grad():
-                    action_tensor = policy.select_action(processed_obs)  # (1, 7)
+                    if device == "cuda":
+                        with torch.cuda.amp.autocast():
+                            action_tensor = policy.select_action(processed_obs)  # (1, 7)
+                    else:
+                        action_tensor = policy.select_action(processed_obs)  # (1, 7)
                     unnormalized_action = postprocessor(action_tensor)
                     action_cmd = unnormalized_action.squeeze(0).cpu().numpy()
 
@@ -266,6 +280,10 @@ def main():
                         help="Save evaluation rollout videos")
     parser.add_argument("--video-dir", type=str, default="eval_videos",
                         help="Directory to save evaluation rollout videos")
+    parser.add_argument("--device", type=str, default=None,
+                        help="Device to run policy evaluation on ('cuda' or 'cpu')")
+    parser.add_argument("--num-inference-steps", type=int, default=5,
+                        help="DDPM denoising steps per action chunk during evaluation for Diffusion Policy (default: 5)")
     args = parser.parse_args()
 
     evaluate_lerobot_policy(
@@ -275,6 +293,8 @@ def main():
         headless=args.headless,
         save_video=args.save_video,
         video_dir=args.video_dir,
+        device=args.device,
+        num_inference_steps=args.num_inference_steps,
     )
 
 
