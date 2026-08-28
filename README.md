@@ -86,6 +86,37 @@ docker run -it --rm \
     mujoco-testbench python -m src.visualize_dataset
 ```
 
+### Upload Dataset to Hugging Face
+
+#### 1. Install and login on your host machine (once)
+
+```bash
+pip install huggingface_hub
+huggingface-cli login
+```
+
+Get a token with **Write** access from huggingface.co/settings/tokens. The Docker container reads credentials from `~/.cache/huggingface` automatically — no need to log in inside the container.
+
+#### 2. Upload
+
+```bash
+# Using the convenience script
+./docker_run.sh --upload --data-dir data/red_block_dataset --repo-id your_hf_username/dataset_name
+
+# Add --private to keep the dataset private
+./docker_run.sh --upload --data-dir data/red_block_dataset --repo-id your_hf_username/dataset_name --private
+
+# Or manually
+docker run -it --rm \
+    -v $(pwd):/app \
+    -v $HOME/.cache/huggingface:/root/.cache/huggingface:rw \
+    mujoco-testbench python -m src.upload_dataset \
+    --data-dir data/red_block_dataset \
+    --repo-id your_hf_username/dataset_name
+```
+
+If `HF_TOKEN` is set in your shell, the script forwards it into the container automatically.
+
 ## Project Structure
 
 ```
