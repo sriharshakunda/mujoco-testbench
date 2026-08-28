@@ -19,8 +19,8 @@ python -c "import mujoco; print('MuJoCo installed successfully')"
 ## Docker Setup
 
 ```bash
-docker build -t robot-decompose .
-docker run -it robot-decompose
+docker build -t mujoco-testbench .
+docker run -it mujoco-testbench
 ```
 
 ## Project Structure
