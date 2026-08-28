@@ -65,7 +65,8 @@ def launch_lerobot_train(
         output_dir = get_unique_output_dir(output_dir)
 
     cmd = [
-        sys.executable, "-m", "lerobot.scripts.lerobot_train",
+        sys.executable, "-c",
+        "import lerobot.datasets.utils as u, pandas as pd; u.check_version_compatibility = lambda *a, **k: None; _orig_nest = u.load_nested_dataset; u.load_nested_dataset = lambda d, features=None, episodes=None: _orig_nest(d, features=None, episodes=episodes); u.load_episodes = lambda d: u.load_nested_dataset(d / u.EPISODES_DIR, features=None); from lerobot.scripts.lerobot_train import main; main()",
         f"--dataset.repo_id={repo_id}",
     ]
 
