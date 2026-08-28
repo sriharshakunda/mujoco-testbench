@@ -1,0 +1,292 @@
+<mujoco model="piper_with_gripper">
+  <!-- eulerseq xyz = extrinsic roll-pitch-yaw, matches URDF rpy convention -->
+  <compiler eulerseq="xyz" angle="radian" meshdir="piper/meshes"/>
+
+  <visual>
+    <headlight ambient="0.25 0.25 0.25" diffuse="0.5 0.5 0.5" specular="0.15 0.15 0.15"/>
+    <global offwidth="1280" offheight="720"/>
+  </visual>
+
+  <!-- implicitfast: implicit actuator spring-damper evaluation = unconditional
+       numerical stability for PD position controllers. 1 kHz timestep. -->
+  <option timestep="0.001" gravity="0 0 -9.81" integrator="implicitfast"/>
+
+  <default>
+    <joint damping="5.0" armature="0.1"/>
+    <geom contype="1" conaffinity="1" rgba=".8 .8 .8 1"/>
+    <motor ctrllimited="true" ctrlrange="-1 1"/>
+    <default class="squishy_sphere">
+      <geom type="sphere" size="0.018" mass="0.03"
+            solimp="0.90 0.99 0.005 0.5 2" solref="0.02 0.8"
+            friction="2.2 0.4 0.01"/>
+    </default>
+    <default class="pickup_cube">
+      <geom type="box" size="0.014 0.014 0.014" mass="0.025"
+            solimp="0.90 0.98 0.003 0.5 2" solref="0.01 1"
+            friction="2.5 0.5 0.01"/>
+    </default>
+  </default>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512"
+             rgb1="0.85 0.85 0.85" rgb2="0.95 0.95 0.95"/>
+    <material name="grid" texture="grid" texrepeat="4 4" reflectance=".2"/>
+
+    <!-- Arm meshes (STL for collision + visual) -->
+    <mesh name="base_link"    file="base_link.stl"/>
+    <mesh name="link1"        file="link1.stl"/>
+    <mesh name="link2"        file="link2.stl"/>
+    <mesh name="link3"        file="link3.stl"/>
+    <mesh name="link4"        file="link4.stl"/>
+    <mesh name="link5"        file="link5.stl"/>
+    <mesh name="link6"        file="link6.stl"/>
+    <mesh name="flange"       file="flange.stl"/>
+    <mesh name="gripper_base" file="gripper_base.stl"/>
+    <mesh name="gripper_l1"   file="gripper_link1.stl"/>
+    <mesh name="gripper_l2"   file="gripper_link2.stl"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0.3 0.3 3.5" dir="0 0 -1" diffuse=".35 .35 .35"/>
+    <light pos="1.0 -0.5 3.0" dir="-0.5 0.5 -1" diffuse=".35 .35 .35"/>
+    <geom name="floor" type="plane" size="4 4 0.1" material="grid" contype="1" conaffinity="1"/>
+
+    <!--
+      ── Table ─────────────────────────────────────────────────────────────
+      2 × 2 ft = 0.6096 × 0.6096 m, surface at 0.5 ft = 0.1524 m ≈ 0.15 m.
+      Table slab half-extents: (0.305, 0.305, 0.015) → top surface at 0.15 m.
+      Legs: four 40 × 40 mm posts, 0.12 m tall.
+    -->
+    <body name="table" pos="0 0 0">
+      <geom name="table_top"  type="box" size="0.305 0.305 0.015"
+            pos="0.305 0.305 0.135" rgba="0.75 0.60 0.42 1"/>
+      <geom name="leg_fl" type="box" size="0.02 0.02 0.060"
+            pos="0.04  0.04  0.060" rgba="0.55 0.40 0.25 1"/>
+      <geom name="leg_fr" type="box" size="0.02 0.02 0.060"
+            pos="0.57  0.04  0.060" rgba="0.55 0.40 0.25 1"/>
+      <geom name="leg_bl" type="box" size="0.02 0.02 0.060"
+            pos="0.04  0.57  0.060" rgba="0.55 0.40 0.25 1"/>
+      <geom name="leg_br" type="box" size="0.02 0.02 0.060"
+            pos="0.57  0.57  0.060" rgba="0.55 0.40 0.25 1"/>
+    </body>
+
+    <!-- ── Base link (fixed directly to table surface, rotated 180 deg) ── -->
+    <body name="base_link" pos="0.10 0.10 0.15" euler="0 0 0">
+      <geom type="mesh" mesh="base_link" contype="0" conaffinity="0" rgba=".45 .45 .45 1"/>
+      <inertial pos="-0.004736 0.0000257 0.04145" mass="1.02"
+                fullinertia="0.00267433 0.00282612 0.00089624
+                             -0.00000073 -0.00017389  0.00000040"/>
+
+      <!-- ── Link 1 — joint1 (shoulder yaw, z-axis) ──────────────────── -->
+      <body name="link1" pos="0 0 0.123" euler="0 0 -3.1415926">
+        <joint name="joint1" type="hinge" axis="0 0 1"
+               range="-3.14 3.14"/>
+        <geom type="mesh" mesh="link1" contype="0" conaffinity="0" rgba=".75 .75 .75 1"/>
+        <inertial pos="0.00032 -0.00041 -0.00348" mass="0.71"
+                  fullinertia="0.00050027 0.00040879 0.00045802
+                               0.00000078  0.00000626  0.00000462"/>
+
+        <!-- ── Link 2 — joint2 (shoulder pitch) ────────────────────── -->
+        <body name="link2" euler="1.5707963 0 3.1415926">
+          <joint name="joint2" type="hinge" axis="0 0 1"
+                 range="-3.1415926 0"/>
+          <geom type="mesh" mesh="link2" contype="0" conaffinity="0" rgba=".75 .75 .75 1"/>
+          <inertial pos="0.21852 -0.00861 0.00126" mass="1.16"
+                    fullinertia="0.00111915 0.06763251 0.06755900
+                                 0.00182916  0.00019233  0.00000767"/>
+
+          <!-- ── Link 3 — joint3 (elbow) ──────────────────────────── -->
+          <body name="link3" pos="0.28503 0 0" euler="0 0 -1.5707963">
+            <joint name="joint3" type="hinge" axis="0 0 1"
+                   range="-2.9670597 0.0"/>
+            <geom type="mesh" mesh="link3" contype="0" conaffinity="0" rgba=".75 .75 .75 1"/>
+            <inertial pos="-0.01999 -0.14808 -0.00053" mass="0.5"
+                      fullinertia="0.01347608 0.00046377 0.01363321
+                                   0.00161034  0.00000066  0.00000162"/>
+
+            <!-- ── Link 4 — joint4 (forearm roll) ──────────────── -->
+            <body name="link4" pos="-0.02198 -0.25075 0" euler="1.5707963 0 0">
+              <joint name="joint4" type="hinge" axis="0 0 1"
+                     range="-1.7453292 1.7453292"/>
+              <geom type="mesh" mesh="link4" contype="0" conaffinity="0" rgba=".75 .75 .75 1"/>
+              <inertial pos="0.00013 -0.00076 -0.00394" mass="0.38"
+                        fullinertia="0.00017844 0.00018914 0.00014613
+                                     0.00000062  0.00000067  0.00000408"/>
+
+              <!-- ── Link 5 — joint5 (wrist pitch) ────────────── -->
+              <body name="link5" euler="-1.5707963 0 0">
+                <joint name="joint5" type="hinge" axis="0 0 1"
+                       range="-1.2217304 1.2217304"/>
+                <geom type="mesh" mesh="link5" contype="0" conaffinity="0" rgba=".75 .75 .75 1"/>
+                <inertial pos="0.00018 -0.06104 -0.00227" mass="0.383"
+                          fullinertia="0.00172318 0.00017936 0.00171172
+                                       0.00000259  0.00000010  0.00000990"/>
+
+                <!-- ── Link 6 — joint6 (wrist yaw) ───────────── -->
+                <body name="link6" pos="0.000088259 -0.091 0" euler="1.5707963 0 0">
+                  <joint name="joint6" type="hinge" axis="0 0 1"
+                         range="-2.0943951 2.0943951"/>
+                  <geom type="mesh" mesh="link6" contype="0" conaffinity="0" rgba=".75 .75 .75 1"/>
+                  <inertial pos="-0.00003 0.00006 -0.002" mass="0.007"
+                            fullinertia="0.00152112 0.00138626 0.00031152
+                                         0.00000202  0.00000261  0.00000002"/>
+
+                  <!-- ── Flange + gripper base (merged fixed bodies) ─ -->
+                  <body name="gripper_base" pos="0 0 0.0045">
+                    <geom type="mesh" mesh="flange" contype="1" conaffinity="1" rgba=".55 .55 .55 1"/>
+                    <geom type="mesh" mesh="gripper_base" contype="1" conaffinity="1" rgba=".40 .40 .40 1"/>
+                    <inertial pos="-0.000184 0.0000805 0.032144" mass="0.45"
+                              fullinertia="0.00092934 0.00071447 0.00039442
+                                           0.00000034 -0.00000738  0.00000005"/>
+
+                    <!-- Finger 1: visual mesh + rigid body collision pad at tip -->
+                    <body name="gripper_link1" pos="0 0 0.138" euler="1.5707963 0 0">
+                      <joint name="gripper_joint1" type="slide" axis="0 0 1" range="0 0.05"/>
+                      <geom type="mesh" mesh="gripper_l1" contype="1" conaffinity="1" rgba=".25 .25 .25 1"/>
+                      <geom name="pad1" type="box" size="0.01 0.01 0.001"
+                            pos="0.0 -0.01 0.0"
+                            friction="2.5 0.5 0.01" solref="0.004 1.0" solimp="0.95 0.99 0.001 0.5 2"
+                            rgba="0.85 0.2 0.2 0.8"/>
+                      <inertial pos="0.00065 -0.04919 0.00972" mass="0.025"
+                                fullinertia="0.00007371 0.00000781 0.00007470
+                                             -0.00000113  0.00000021 -0.00001372"/>
+                    </body>
+
+                    <!-- Finger 2: 180° rotated on gripper face + rigid body collision pad at tip -->
+                    <body name="gripper_link2" pos="0 0 0.138" euler="1.5707963 3.1415926 0">
+                      <joint name="gripper_joint2" type="slide" axis="0 0 -1" range="-0.05 0"/>
+                      <geom type="mesh" mesh="gripper_l2" contype="1" conaffinity="1" rgba=".25 .25 .25 1"/>
+                      <geom name="pad2" type="box" size="0.01 0.01 0.001"
+                            pos="0.00 -0.01 0.0"
+                            friction="2.5 0.5 0.01" solref="0.004 1.0" solimp="0.95 0.99 0.001 0.5 2"
+                            rgba="0.85 0.2 0.2 0.8"/>
+                      <inertial pos="0.00065 -0.04919 0.00972" mass="0.025"
+                                fullinertia="0.00007371 0.00000781 0.00007470
+                                             -0.00000113  0.00000021 -0.00001372"/>
+                    </body>
+
+                    <!-- TCP site: centered yellow dot origin -->
+                    <site name="ee"        pos="0 0.0 0.138" size="0.003"        rgba="1 1 0 1"/>
+                    <!-- Centered RGB 3D crosshair matching the yellow dot (Red=X, Green=Y, Blue=Z) -->
+                    <site name="ee_axis_x" pos="0 0.0 0.138" type="cylinder" size="0.0025 0.020" euler="0 1.5707963 0" rgba="1 0.1 0.1 0.95"/>
+                    <site name="ee_axis_y" pos="0 0.0 0.138" type="cylinder" size="0.0025 0.020" euler="1.5707963 0 0" rgba="0.1 0.9 0.1 0.95"/>
+                    <site name="ee_axis_z" pos="0 0.0 0.138" type="cylinder" size="0.0025 0.020" euler="0 0 0"         rgba="0.1 0.3 1.0 0.95"/>
+
+                    <!--
+                      Wrist cameras — attached to gripper_base, looking toward TCP (+Z).
+                      MuJoCo cameras look in their local -Z, so euler="3.14159 0 0"
+                      flips Z to point in gripper_base +Z (toward the workspace).
+                      Both cameras share the same pose; render separately for RGB / depth.
+                    -->
+                    <camera name="wrist_rgb"
+                            pos="-0.1 0 0.00"
+                            euler="3.14159 -0.35 0"
+                            fovy="60"/>
+                    <camera name="wrist_depth"
+                            pos="-0.1 0 0.00"
+                            euler="3.14159 -0.35 0"
+                            fovy="60"/>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!--
+      ── Large, Thin Side-by-Side Bins ────────────────────────────────────
+      Source Bin (Brown, left) and Target Bin (Teal, right) placed side-by-side.
+      Thin 1.8 cm walls with large 18x14 cm inner cavities.
+    -->
+    <body name="source_bin" pos="0.35 0.48 0.15">
+      <geom name="sbin_floor" type="box" size="0.090 0.070 0.002"
+            pos="0 0 0.002" rgba="0.55 0.35 0.15 1"/>
+      <geom name="sbin_n"     type="box" size="0.090 0.003 0.015"
+            pos="0  0.067 0.017" rgba="0.55 0.35 0.15 1"/>
+      <geom name="sbin_s"     type="box" size="0.090 0.003 0.015"
+            pos="0 -0.067 0.017" rgba="0.55 0.35 0.15 1"/>
+      <geom name="sbin_e"     type="box" size="0.003 0.064 0.015"
+            pos=" 0.087 0 0.017" rgba="0.55 0.35 0.15 1"/>
+      <geom name="sbin_w"     type="box" size="0.003 0.064 0.015"
+            pos="-0.087 0 0.017" rgba="0.55 0.35 0.15 1"/>
+    </body>
+
+    <body name="target_bin" pos="0.35 0.32 0.15">
+      <geom name="tbin_floor" type="box" size="0.090 0.070 0.002"
+            pos="0 0 0.002" rgba="0.15 0.55 0.55 1"/>
+      <geom name="tbin_n"     type="box" size="0.090 0.003 0.015"
+            pos="0  0.067 0.017" rgba="0.15 0.55 0.55 1"/>
+      <geom name="tbin_s"     type="box" size="0.090 0.003 0.015"
+            pos="0 -0.067 0.017" rgba="0.15 0.55 0.55 1"/>
+      <geom name="tbin_e"     type="box" size="0.003 0.064 0.015"
+            pos=" 0.087 0 0.017" rgba="0.15 0.55 0.55 1"/>
+      <geom name="tbin_w"     type="box" size="0.003 0.064 0.015"
+            pos="-0.087 0 0.017" rgba="0.15 0.55 0.55 1"/>
+    </body>
+
+    <!-- Pickable Cubes on Table Outside Bins -->
+    <body name="cube_red"    pos="0.28 0.15 0.165"><freejoint/>
+      <geom class="pickup_cube" rgba="0.92 0.15 0.15 1"/></body>
+    <body name="cube_yellow" pos="0.34 0.15 0.165"><freejoint/>
+      <geom class="pickup_cube" rgba="0.95 0.75 0.10 1"/></body>
+    <body name="cube_purple" pos="0.31 0.21 0.165"><freejoint/>
+      <geom class="pickup_cube" rgba="0.65 0.15 0.85 1"/></body>
+
+    <!-- Invisible target site marker (green sphere removed) -->
+    <site name="target" pos="0.30 0.05 0.25" size="0.001" rgba="0 0 0 0"/>
+
+    <!--
+      ── Cameras ────────────────────────────────────────────────────────────
+      scene_cam   : overview of the full table (arm + both bins).
+      topdown_cam : wide overview straight down covering the full tabletop workspace.
+    -->
+    <camera name="scene_cam"   pos="0.30 -0.30 1.05" euler="0.65 0 0" fovy="52"/>
+    <camera name="topdown_cam" pos="0.305 0.305 1.10" fovy="68"/>
+  </worldbody>
+
+  <!--
+    Explicit contact exclusions between adjacent robot bodies.
+    Prevents mesh-bearing joints from self-colliding and jamming.
+    (Recommended in atherbot_core/docs/mujoco_robot_tuning_guide.md)
+  -->
+  <contact>
+    <exclude body1="base_link"    body2="link1"/>
+    <exclude body1="link1"        body2="link2"/>
+    <exclude body1="link2"        body2="link3"/>
+    <exclude body1="link3"        body2="link4"/>
+    <exclude body1="link4"        body2="link5"/>
+    <exclude body1="link5"        body2="link6"/>
+    <exclude body1="link6"        body2="gripper_base"/>
+    <exclude body1="gripper_base" body2="gripper_link1"/>
+    <exclude body1="gripper_base" body2="gripper_link2"/>
+    <exclude body1="gripper_link1" body2="gripper_link2"/>
+  </contact>
+
+  <!--
+    polycoef="0 -1 0 0 0" → joint2 = -joint1.
+    When joint1 slides +0.05 (finger1 opens), joint2 goes to -0.05
+    (finger2 opens in the opposite direction). Matches URDF design.
+  -->
+  <equality>
+    <joint joint1="gripper_joint1" joint2="gripper_joint2" polycoef="0 -1 0 0 0"/>
+  </equality>
+
+  <actuator>
+    <!--
+      PD position actuators — kp/kv tuned per atherbot guide:
+        Shoulder (j1-j3): kp=800  kv=80   (heavy links, 0.7-1.16 kg)
+        Wrist    (j4-j6): kp=400  kv=40   (light links, 0.007-0.38 kg)
+        Gripper         : kp=4000 kv=100  (high clamping force for grasping)
+    -->
+    <position name="act1" joint="joint1" kp="2000" kv="120" ctrlrange="-3.14 3.14"/>
+    <position name="act2" joint="joint2" kp="2000" kv="120" ctrlrange="-3.1415926 0"/>
+    <position name="act3" joint="joint3" kp="2000" kv="120" ctrlrange="-2.9670597 0.0"/>
+    <position name="act4" joint="joint4" kp="800"  kv="60"  ctrlrange="-1.7453292 1.7453292"/>
+    <position name="act5" joint="joint5" kp="800"  kv="60"  ctrlrange="-1.2217304 1.2217304"/>
+    <position name="act6" joint="joint6" kp="800"  kv="60"  ctrlrange="-2.0943951 2.0943951"/>
+    <!-- Single scalar: 0.0 = closed, 0.05 = fully open (9 cm gap) -->
+    <position name="gripper" joint="gripper_joint1" kp="4000" kv="100" ctrlrange="0.0 0.05"/>
+  </actuator>
+</mujoco>

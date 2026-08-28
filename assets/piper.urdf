@@ -1,0 +1,241 @@
+<?xml version="1.0" ?>
+<robot name="piper" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Mock 6-DOF Agilex Piper Arm -->
+  <!-- This is a simplified kinematic chain for the Piper arm -->
+
+  <!-- Base link -->
+  <link name="base_link">
+    <inertial>
+      <mass value="2.0"/>
+      <inertia ixx="0.02" ixy="0.0" ixz="0.0" iyy="0.02" iyz="0.0" izz="0.02"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <box size="0.2 0.2 0.1"/>
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.2 0.2 0.1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Link 1 (shoulder) -->
+  <link name="link1">
+    <inertial>
+      <mass value="3.0"/>
+      <inertia ixx="0.05" ixy="0.0" ixz="0.0" iyy="0.05" iyz="0.0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <cylinder radius="0.05" length="0.15"/>
+      </geometry>
+      <origin rpy="1.5708 0 0" xyz="0 0 0.075"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.05" length="0.15"/>
+      </geometry>
+      <origin rpy="1.5708 0 0" xyz="0 0 0.075"/>
+    </collision>
+  </link>
+
+  <!-- Link 2 (upper arm) -->
+  <link name="link2">
+    <inertial>
+      <mass value="2.5"/>
+      <inertia ixx="0.04" ixy="0.0" ixz="0.0" iyy="0.04" iyz="0.0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <box size="0.08 0.08 0.3"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0.15"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.08 0.08 0.3"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0.15"/>
+    </collision>
+  </link>
+
+  <!-- Link 3 (forearm shoulder) -->
+  <link name="link3">
+    <inertial>
+      <mass value="2.0"/>
+      <inertia ixx="0.03" ixy="0.0" ixz="0.0" iyy="0.03" iyz="0.0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <box size="0.07 0.07 0.25"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0.125"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.07 0.07 0.25"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0.125"/>
+    </collision>
+  </link>
+
+  <!-- Link 4 (wrist 1) -->
+  <link name="link4">
+    <inertial>
+      <mass value="1.5"/>
+      <inertia ixx="0.02" ixy="0.0" ixz="0.0" iyy="0.02" iyz="0.0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <cylinder radius="0.04" length="0.1"/>
+      </geometry>
+      <origin rpy="0 1.5708 0" xyz="0 0.05 0"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.04" length="0.1"/>
+      </geometry>
+      <origin rpy="0 1.5708 0" xyz="0 0.05 0"/>
+    </collision>
+  </link>
+
+  <!-- Link 5 (wrist 2) -->
+  <link name="link5">
+    <inertial>
+      <mass value="1.5"/>
+      <inertia ixx="0.02" ixy="0.0" ixz="0.0" iyy="0.02" iyz="0.0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <cylinder radius="0.04" length="0.1"/>
+      </geometry>
+      <origin rpy="1.5708 0 0" xyz="0 0 0.05"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.04" length="0.1"/>
+      </geometry>
+      <origin rpy="1.5708 0 0" xyz="0 0 0.05"/>
+    </collision>
+  </link>
+
+  <!-- Link 6 (end-effector/wrist 3) -->
+  <link name="link6">
+    <inertial>
+      <mass value="0.8"/>
+      <inertia ixx="0.01" ixy="0.0" ixz="0.0" iyy="0.01" iyz="0.0" izz="0.005"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <cylinder radius="0.03" length="0.08"/>
+      </geometry>
+      <origin rpy="0 1.5708 0" xyz="0.04 0 0"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.03" length="0.08"/>
+      </geometry>
+      <origin rpy="0 1.5708 0" xyz="0.04 0 0"/>
+    </collision>
+  </link>
+
+  <!-- End-effector tip (for task-space control) -->
+  <link name="ee_link">
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <sphere radius="0.02"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1.0 0.0 0.0 0.8"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <sphere radius="0.02"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Joint 1 (base to link1) -->
+  <joint name="joint1" type="revolute">
+    <parent link="base_link"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0.15" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="50" velocity="1.5708"/>
+    <dynamics damping="0.1" friction="0.0"/>
+  </joint>
+
+  <!-- Joint 2 (link1 to link2) -->
+  <joint name="joint2" type="revolute">
+    <parent link="link1"/>
+    <child link="link2"/>
+    <origin xyz="0 0 0.15" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="50" velocity="1.5708"/>
+    <dynamics damping="0.1" friction="0.0"/>
+  </joint>
+
+  <!-- Joint 3 (link2 to link3) -->
+  <joint name="joint3" type="revolute">
+    <parent link="link2"/>
+    <child link="link3"/>
+    <origin xyz="0 0 0.3" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="50" velocity="1.5708"/>
+    <dynamics damping="0.1" friction="0.0"/>
+  </joint>
+
+  <!-- Joint 4 (link3 to link4) -->
+  <joint name="joint4" type="revolute">
+    <parent link="link3"/>
+    <child link="link4"/>
+    <origin xyz="0 0 0.25" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3.14159" upper="3.14159" effort="30" velocity="1.5708"/>
+    <dynamics damping="0.1" friction="0.0"/>
+  </joint>
+
+  <!-- Joint 5 (link4 to link5) -->
+  <joint name="joint5" type="revolute">
+    <parent link="link4"/>
+    <child link="link5"/>
+    <origin xyz="0 0.1 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="30" velocity="1.5708"/>
+    <dynamics damping="0.1" friction="0.0"/>
+  </joint>
+
+  <!-- Joint 6 (link5 to link6) -->
+  <joint name="joint6" type="revolute">
+    <parent link="link5"/>
+    <child link="link6"/>
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3.14159" upper="3.14159" effort="30" velocity="1.5708"/>
+    <dynamics damping="0.1" friction="0.0"/>
+  </joint>
+
+  <!-- End-effector joint (fixed) -->
+  <joint name="ee_joint" type="fixed">
+    <parent link="link6"/>
+    <child link="ee_link"/>
+    <origin xyz="0.08 0 0" rpy="0 0 0"/>
+  </joint>
+
+</robot>

@@ -1,0 +1,157 @@
+# Teleoperation Configuration
+# Configures input devices, control mapping, and command scaling
+
+teleoperation:
+  # Polling frequency in Hz
+  polling_freq: 100
+
+  # Whether to render the environment during teleoperation
+  render: true
+
+  # Input devices to use (in priority order)
+  # Each device is attempted in order; first successful one is used
+  devices:
+    # Spacemouse device (3D mouse)
+    - type: "spacemouse"
+      name: "spacemouse_0"
+
+    # Joystick device (standard gamepad)
+    - type: "joystick"
+      name: "joystick_0"
+      device_index: 0
+
+    # Xbox controller
+    - type: "xbox"
+      name: "xbox_controller_0"
+      device_index: 0
+
+    # Mock device for testing (fallback)
+    - type: "mock"
+      name: "mock_device"
+      num_axes: 6
+      num_buttons: 4
+
+  # Control frame: "joint" or "end_effector"
+  # - joint: Direct joint velocity control
+  # - end_effector: Task-space (end-effector) velocity control
+  control_frame: "end_effector"
+
+  # Number of robot joints
+  num_joints: 6
+
+  # Input deadzone threshold (0-1)
+  # Values below this are treated as zero
+  deadzone: 0.05
+
+  # Output gain/sensitivity
+  # Multiplier for all output commands
+  gain: 1.0
+
+  # Axis-to-command mapping
+  # Maps device axes to control commands
+  axis_mapping:
+    # End-effector velocity control (when control_frame=end_effector)
+    axis_0: vel_x        # X translation
+    axis_1: vel_y        # Y translation
+    axis_2: vel_z        # Z translation
+    axis_3: rot_x        # Roll rotation
+    axis_4: rot_y        # Pitch rotation
+    axis_5: rot_z        # Yaw rotation
+
+    # Alternative for joint control (uncomment to use):
+    # axis_0: joint_0
+    # axis_1: joint_1
+    # axis_2: joint_2
+    # axis_3: joint_3
+    # axis_4: joint_4
+    # axis_5: joint_5
+
+  # Scaling/saturation limits for commands
+  # Prevents commands from exceeding these bounds
+  scale_limits:
+    # End-effector velocity limits (m/s and rad/s)
+    vel_x: [-0.5, 0.5]
+    vel_y: [-0.5, 0.5]
+    vel_z: [-0.5, 0.5]
+    rot_x: [-1.0, 1.0]
+    rot_y: [-1.0, 1.0]
+    rot_z: [-1.0, 1.0]
+
+    # Alternative for joint velocities (rad/s)
+    # joint_0: [-1.5, 1.5]
+    # joint_1: [-1.5, 1.5]
+    # joint_2: [-1.5, 1.5]
+    # joint_3: [-1.5, 1.5]
+    # joint_4: [-1.5, 1.5]
+    # joint_5: [-1.5, 1.5]
+
+  # Button action mappings
+  # Maps button names to actions
+  button_actions:
+    button_0: "record"     # Record trajectory
+    button_1: "estop"      # Emergency stop
+
+---
+# Alternative configuration: Joint-space control with joystick
+
+teleoperation_joint:
+  polling_freq: 100
+  render: true
+
+  devices:
+    - type: "joystick"
+      device_index: 0
+    - type: "mock"
+
+  control_frame: "joint"
+  num_joints: 6
+  deadzone: 0.1
+  gain: 1.0
+
+  axis_mapping:
+    axis_0: joint_0
+    axis_1: joint_1
+    axis_2: joint_2
+    axis_3: joint_3
+    axis_4: joint_4
+    axis_5: joint_5
+
+  scale_limits:
+    joint_0: [-1.5, 1.5]
+    joint_1: [-1.5, 1.5]
+    joint_2: [-1.5, 1.5]
+    joint_3: [-1.5, 1.5]
+    joint_4: [-1.5, 1.5]
+    joint_5: [-1.5, 1.5]
+
+---
+# Configuration for spacemouse with high sensitivity
+
+teleoperation_spacemouse:
+  polling_freq: 100
+  render: true
+
+  devices:
+    - type: "spacemouse"
+    - type: "mock"
+
+  control_frame: "end_effector"
+  num_joints: 6
+  deadzone: 0.02      # Lower deadzone for smoother control
+  gain: 2.0           # Higher sensitivity
+
+  axis_mapping:
+    axis_0: vel_x
+    axis_1: vel_y
+    axis_2: vel_z
+    axis_3: rot_x
+    axis_4: rot_y
+    axis_5: rot_z
+
+  scale_limits:
+    vel_x: [-1.0, 1.0]
+    vel_y: [-1.0, 1.0]
+    vel_z: [-1.0, 1.0]
+    rot_x: [-2.0, 2.0]
+    rot_y: [-2.0, 2.0]
+    rot_z: [-2.0, 2.0]

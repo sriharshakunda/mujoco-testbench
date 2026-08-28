@@ -1,0 +1,61 @@
+# Configuration for Imitation Learning (Behavioral Cloning) training
+
+# Model architecture
+model:
+  arch: "mlp"                  # Architecture type: 'mlp'
+  hidden_dims: [256, 256]      # Hidden layer dimensions
+  activation: "relu"           # Activation: 'relu', 'tanh', 'elu', 'sigmoid'
+  use_batch_norm: false        # Use batch normalization
+  use_layer_norm: false        # Use layer normalization
+  dropout_rate: 0.1            # Dropout probability
+
+# Training hyperparameters
+training:
+  num_epochs: 100              # Number of training epochs
+  batch_size: 32               # Batch size for training
+  learning_rate: 1.0e-3        # Initial learning rate
+  weight_decay: 1.0e-5         # L2 regularization coefficient
+  optimizer: "adam"            # Optimizer: 'adam', 'sgd'
+  lr_scheduler: null           # LR scheduler: null, 'linear', 'exponential'
+
+  # Validation
+  val_interval: 1              # Validate every N epochs
+  checkpoint_interval: 1       # Save checkpoint every N epochs
+
+  # Training device
+  device: "cuda"               # Device: 'cpu', 'cuda', 'cuda:0', etc.
+
+# Data configuration
+data:
+  train_data_path: "data/train_observations.npy"  # Path to training observations
+  train_actions_path: "data/train_actions.npy"    # Path to training actions
+  val_data_path: null          # Optional: separate validation data
+  val_actions_path: null       # Optional: separate validation actions
+
+  # Train/val split (if no separate val data)
+  train_val_split: 0.8         # Fraction of data for training
+
+  # Data loading
+  num_workers: 4               # Number of data loading workers
+  pin_memory: true             # Pin memory for faster GPU transfer
+
+  # Seed for reproducibility
+  seed: 42
+
+# Logging and checkpointing
+logging:
+  log_dir: "logs"              # Directory for logs
+  log_level: "INFO"            # Log level: DEBUG, INFO, WARNING, ERROR
+
+# Checkpointing
+checkpoint:
+  checkpoint_dir: "checkpoints"  # Directory for model checkpoints
+  save_best: true              # Save best model based on validation loss
+  resume_from: null            # Optional: path to checkpoint to resume from
+  resume_training: false       # If true, resume training from checkpoint
+
+# Advanced options
+advanced:
+  use_wandb: false             # Use Weights & Biases for logging
+  wandb_project: "il-training" # WandB project name
+  deterministic: true          # Use deterministic algorithms
