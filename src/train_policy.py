@@ -67,7 +67,13 @@ def launch_lerobot_train(
     cmd = [
         sys.executable, "-m", "lerobot.scripts.lerobot_train",
         f"--dataset.repo_id={repo_id}",
-        f"--dataset.root={dataset_root}",
+    ]
+
+    # Only append --dataset.root if directory exists locally
+    if dataset_root and dataset_root.lower() not in ["none", "null", ""] and os.path.exists(dataset_root):
+        cmd.append(f"--dataset.root={dataset_root}")
+
+    cmd.extend([
         "--dataset.use_imagenet_stats=false",
         f"--tolerance_s={tolerance_s}",
         f"--steps={steps}",
@@ -75,7 +81,7 @@ def launch_lerobot_train(
         f"--output_dir={output_dir}",
         f"--job_name={policy_type}_piper_training",
         f"--policy.device={device}",
-    ]
+    ])
 
     if save_freq is not None:
         cmd.append(f"--save_freq={save_freq}")
@@ -117,13 +123,18 @@ def launch_lerobot_train(
         print("[Dry Run] Command generated successfully.")
         return cmd
 
+    # Suppress verbose warnings in subprocess
+    env = os.environ.copy()
+    env["PYTHONWARNINGS"] = "ignore"
+
     # Run subprocess while suppressing verbose config dictionary dumps
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1
+        bufsize=1,
+        env=env,
     )
 
     suppress = False
