@@ -75,7 +75,6 @@ def launch_lerobot_train(
 
     cmd.extend([
         "--dataset.use_imagenet_stats=false",
-        f"--tolerance_s={tolerance_s}",
         f"--steps={steps}",
         f"--batch_size={batch_size}",
         f"--output_dir={output_dir}",
