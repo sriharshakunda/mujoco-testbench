@@ -65,7 +65,7 @@ def evaluate_lerobot_policy(
     print(f"  Headless Mode     : \033[1;33m{headless}\033[0m")
     print("=" * 76 + "\n")
 
-    # 1. Load Pretrained LeRobot Policy
+    # 1. Load Pretrained LeRobot Policy & Normalization Processors
     try:
         policy = ACTPolicy.from_pretrained(checkpoint_path)
     except Exception:
@@ -80,6 +80,36 @@ def evaluate_lerobot_policy(
     policy.to(device)
     policy.eval()
     print(f"✓ Loaded LeRobot {policy.__class__.__name__} from {checkpoint_path}\n")
+
+    # Load preprocessor & postprocessor (handles normalization / unnormalization)
+    from lerobot.policies.factory import make_pre_post_processors
+    try:
+        preprocessor, postprocessor = make_pre_post_processors(policy.config, pretrained_path=checkpoint_path)
+        print("✓ Loaded policy preprocessor & postprocessor from checkpoint.")
+    except Exception as e:
+        print(f"Note: Checkpoint did not contain preprocessors ({e}). Loading fallback stats from data/red_block_dataset...")
+        import json
+        fallback_stats_path = Path("data/red_block_dataset/meta/stats.json")
+        if not fallback_stats_path.exists():
+            fallback_stats_path = Path("data/lerobot_dataset/meta/stats.json")
+        
+        dataset_stats = None
+        if fallback_stats_path.exists():
+            with open(fallback_stats_path, "r") as f:
+                dataset_stats = json.load(f)
+        
+        preprocessor, postprocessor = make_pre_post_processors(
+            policy.config,
+            dataset_stats=dataset_stats,
+            preprocessor_overrides={
+                "device_processor": {"device": device},
+                "normalizer_processor": {"norm_map": policy.config.normalization_mapping},
+            },
+            postprocessor_overrides={
+                "unnormalizer_processor": {"norm_map": policy.config.normalization_mapping},
+            },
+        )
+        print("✓ Configured fallback preprocessor & postprocessor pipelines.")
 
     # 2. Setup Environment & Cameras
     env = PiperEnv()
@@ -132,26 +162,40 @@ def evaluate_lerobot_policy(
             while step_idx < max_steps:
                 # 1. Capture observation state & images
                 raw_state = np.concatenate([env.data.qpos[:N_ARM_JOINTS], [env.data.qpos[N_ARM_JOINTS]]])
-                w_rgb = wrist_cam.get_rgb(env.data)
+                w_rgb, w_dep = wrist_cam.get_rgb_and_depth(env.data)
                 s_rgb = scene_cam.get_rgb(env.data)
                 t_rgb = topdown_cam.get_rgb(env.data)
 
                 if save_video:
                     ep_frames.append(s_rgb)
 
-                # Format observations expected by LeRobot policy (B, C, H, W) in [0, 1]
+                # Format observations expected by LeRobot policy
+                # Note: LeRobot processors expect raw unbatched observations (1D tensors / (C, H, W) images)
                 obs = {
-                    "observation.state": torch.from_numpy(raw_state.astype(np.float32)).unsqueeze(0).to(device),
-                    "observation.images.wrist": torch.from_numpy(w_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0).unsqueeze(0).to(device),
-                    "observation.images.wrist_depth": torch.from_numpy(w_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0).unsqueeze(0).to(device),
-                    "observation.images.extrinsic": torch.from_numpy(s_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0).unsqueeze(0).to(device),
-                    "observation.images.topdown": torch.from_numpy(t_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0).unsqueeze(0).to(device),
+                    "observation.state": torch.from_numpy(raw_state.astype(np.float32)),
+                    "observation.images.wrist": torch.from_numpy(w_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0),
+                    "observation.images.wrist_depth": torch.from_numpy(w_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0),
+                    "observation.images.extrinsic": torch.from_numpy(s_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0),
+                    "observation.images.topdown": torch.from_numpy(t_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0),
+                    "task": "pick up the red cube and place it into the bin",
                 }
+
+                # Adapt camera keys for SmolVLA if needed
+                if hasattr(policy.config, "image_features"):
+                    policy_cams = list(policy.config.image_features.keys())
+                    if "observation.images.camera1" in policy_cams:
+                        obs["observation.images.camera1"] = obs["observation.images.wrist"]
+                        obs["observation.images.camera2"] = obs["observation.images.extrinsic"]
+                        obs["observation.images.camera3"] = obs["observation.images.topdown"]
+
+                # Process observation through normalizer & device placement
+                processed_obs = preprocessor(obs)
 
                 # 2. Select next action from LeRobot policy
                 with torch.no_grad():
-                    action_tensor = policy.select_action(obs)  # (1, 7)
-                    action_cmd = action_tensor.squeeze(0).cpu().numpy()
+                    action_tensor = policy.select_action(processed_obs)  # (1, 7)
+                    unnormalized_action = postprocessor(action_tensor)
+                    action_cmd = unnormalized_action.squeeze(0).cpu().numpy()
 
                 # 3. Apply action to MuJoCo robot
                 env.data.ctrl[:7] = np.clip(action_cmd[:7], ctrl_min, ctrl_max)
@@ -171,6 +215,13 @@ def evaluate_lerobot_policy(
 
                 if dx < 0.08 and dy < 0.08 and dz < 0.08:
                     ep_success = True
+                    # Hold for ~2 seconds so the viewer shows the cube settled in the bin
+                    for _ in range(60):
+                        mujoco.mj_step(env.model, env.data)
+                        if viewer is not None:
+                            viewer.sync()
+                        if save_video:
+                            ep_frames.append(scene_cam.get_rgb(env.data))
                     break
 
             if ep_success:

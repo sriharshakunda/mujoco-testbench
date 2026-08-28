@@ -1,9 +1,10 @@
-# Robot Decompose Codebase Explanation
+# MuJoCo Testbench Codebase Explanation
 
 ## 📁 Project Structure Overview
 
 ```
-robot_decompose/
+mujoco-testbench/
+
 ├── app.py                          # Main teleoperation application
 ├── snapshot.py                     # Camera capture and rendering
 ├── make_video.py                   # Video recording utility

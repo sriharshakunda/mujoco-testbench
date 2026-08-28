@@ -13,6 +13,7 @@ recordings/
 models/
 checkpoints/
 runs/
+openspec/
 wandb/
 *.pt
 *.pth

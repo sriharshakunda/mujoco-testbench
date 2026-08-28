@@ -183,3 +183,54 @@ class PiperEnv:
 
     def __exit__(self, *_):
         self.close()
+
+
+# ------------------------------------------------------------------
+# Gymnasium Interface Integration
+# ------------------------------------------------------------------
+try:
+    import gymnasium as gym
+    from gymnasium import spaces
+    GYM_AVAILABLE = True
+except ImportError:
+    try:
+        import gym
+        from gym import spaces
+        GYM_AVAILABLE = True
+    except ImportError:
+        GYM_AVAILABLE = False
+
+if GYM_AVAILABLE:
+    class PiperGymEnv(gym.Env):
+        """Gymnasium environment wrapper for Agilex Piper MuJoCo simulation."""
+        metadata = {"render_modes": ["rgb_array", "human"], "render_fps": 30}
+
+        def __init__(self, render_mode: Optional[str] = None, max_episode_steps: int = 500):
+            super().__init__()
+            self.env = PiperEnv(render_mode=render_mode, max_episode_steps=max_episode_steps)
+            self.render_mode = render_mode
+            self.max_episode_steps = max_episode_steps
+
+            ctrl_min = self.env.model.actuator_ctrlrange[:, 0]
+            ctrl_max = self.env.model.actuator_ctrlrange[:, 1]
+            self.action_space = spaces.Box(low=ctrl_min, high=ctrl_max, dtype=np.float32)
+
+            obs_dim = self.env.observation_space_shape[0]
+            self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
+
+        def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+            if seed is not None:
+                np.random.seed(seed)
+            obs, info = self.env.reset(randomize_cubes=True)
+            return obs.astype(np.float32), info
+
+        def step(self, action: np.ndarray):
+            obs, reward, terminated, truncated, info = self.env.step(action)
+            return obs.astype(np.float32), reward, terminated, truncated, info
+
+        def render(self):
+            return self.env.render()
+
+        def close(self):
+            self.env.close()
+

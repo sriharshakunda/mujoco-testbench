@@ -79,10 +79,10 @@ case "$MODE" in
         CMD=(python -m src.evaluate_policy)
         ;;
     lerobot_train)
-        CMD=(python -m lerobot.scripts.train)
+        CMD=(lerobot-train)
         ;;
     lerobot_eval)
-        CMD=(python -m lerobot.scripts.eval)
+        CMD=(lerobot-eval)
         ;;
     viz)
         CMD=(python -m src.visualize_dataset)
@@ -114,16 +114,27 @@ fi
 
 # 6. Run container interactively
 docker run -it --rm \
+    --user "$(id -u):$(id -g)" \
     $GPU_FLAG \
     "${HF_ENV_FLAG[@]}" \
     --net=host \
     --ipc=host \
     --privileged \
+    -e USER="$(whoami)" \
+    -e LOGNAME="$(whoami)" \
+    -e HOME="/tmp" \
+    -e TORCH_HOME="/tmp/torch_cache" \
     -e DISPLAY="$DISPLAY" \
+    -e MUJOCO_GL="${MUJOCO_GL:-egl}" \
+    -e PYTHONPATH="/app" \
+    -e HF_HOME="/tmp/.cache/huggingface" \
+    -e TORCHINDUCTOR_CACHE_DIR="/tmp/torch_inductor" \
     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
     -v /dev/input:/dev/input:rw \
     -v "$(pwd)":/app \
-    -v "$HOME/.cache/huggingface:/root/.cache/huggingface:rw" \
+    -v "$HOME/.cache/huggingface:/tmp/.cache/huggingface:rw" \
+    -v "$HOME/.cache/torch:/tmp/torch_cache:rw" \
     -w /app \
     "$IMAGE_NAME" \
     "${CMD[@]}" "${ARGS[@]}"
+

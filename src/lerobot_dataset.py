@@ -70,7 +70,7 @@ class LeRobotDatasetRecorder:
                 repo_id=self.repo_id,
                 fps=self.fps,
                 root=self.dataset_dir,
-                features=self.features,
+                features=self.features, vcodec="h264",
             )
 
         self.is_recording = False

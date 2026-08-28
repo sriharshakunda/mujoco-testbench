@@ -5,68 +5,43 @@ A high-fidelity simulation environment, autonomous multi-modal demonstration col
 ---
 
 ## Table of Contents
-1. [Quick Start & Docker Setup](#quick-start--docker-setup)
-2. [Automated Data Collection (Recommended)](#1-automated-data-collection)
-3. [Manual Teleoperation & SpaceMouse Control](#2-manual-teleoperation)
-4. [Dataset Inspection & Video Export](#3-dataset-inspection--video-export)
-5. [Hugging Face Hub Upload & Online Visualizer](#4-hugging-face-hub-upload)
-6. [Policy Training (ACT & SmolVLA)](#5-policy-training)
-7. [Policy Evaluation & Benchmark](#6-policy-evaluation--benchmark)
-8. [Dataset Specification (LeRobot v2.0)](#dataset-specification)
+1. [Docker Setup & Compilation](#1-docker-setup--compilation)
+2. [Data Collection](#2-data-collection)
+   - [Manual Teleoperation Mode](#manual-teleoperation-mode)
+   - [Automated Data Collection Mode](#automated-data-collection-mode)
+   - [Tuning Autonomous Agent Parameters](#tuning-autonomous-agent-parameters)
+3. [Policy Training](#3-policy-training)
+   - [Training on Local Machine](#training-on-local-machine)
+   - [Training in Notebooks / Cloud GPUs](#training-in-notebooks--cloud-gpus)
+4. [Policy Evaluation & Benchmarking](#4-policy-evaluation--benchmarking)
+5. [Dataset Specifications (LeRobot v3.0)](#5-dataset-specifications-lerobot-v30)
 
 ---
 
-## Quick Start & Docker Setup
+## 1. Docker Setup & Compilation
 
-### 1. Build Container Image
+### Compile/Build Docker Image
 ```bash
 ./docker_run.sh --build
 ```
 
-### 2. Verify Simulation & Kinematics
+### Launch Interactive Docker Sandbox
 ```bash
-./docker_run.sh python -c "import mujoco; print('MuJoCo ready!')"
+./docker_run.sh
 ```
 
 ---
 
-## 1. Automated Data Collection
+## 2. Data Collection
 
-Collect verified multi-modal demonstration episodes automatically without human teleoperation. The autonomous controller generates realistic trajectories with tabletop cube pose randomization, grasping the red cube and placing it into the target blue bin.
-
-### Interactive Live GUI
-Watch the arm autonomously pick and place each episode:
-```bash
-./docker_run.sh --auto-collect --num-episodes 10 --task "place the red block in blue bin" --data-dir data/red_block_dataset
-```
-
-### Fast Headless Mode
-Generate large batches of demonstration data in the background at maximum simulation speed:
-```bash
-./docker_run.sh --auto-collect --num-episodes 50 --task "place the red block in blue bin" --data-dir data/red_block_dataset --headless
-```
-
-#### Parameters:
-| Argument | Default | Description |
-|---|---|---|
-| `--auto-collect` | - | Triggers autonomous pick-and-place collection |
-| `--num-episodes N` | `10` | Number of verified successful episodes to record |
-| `--task "PROMPT"` | `"pick up the red cube and place it into the blue bin"` | Language instruction prompt |
-| `--data-dir PATH` | `data/red_block_dataset` | Directory to store dataset |
-| `--fps FPS` | `30` | Trajectory capture frame rate |
-| `--headless` | `False` | Run headless without opening X11 GUI window |
-
----
-
-## 2. Manual Teleoperation
-
-Control the arm manually using a **3Dconnexion SpaceMouse** or **Keyboard**:
+### Manual Teleoperation Mode
+Control the Piper arm manually using a **3Dconnexion SpaceMouse** or **Keyboard** to record demonstration trajectories:
 
 ```bash
 ./docker_run.sh --task "place the red block in blue bin" --data-dir data/red_block_dataset
 ```
 
-### Keyboard Controls:
+#### Keyboard Controls:
 | Key | Action |
 |---|---|
 | `W / S` | Forward / Backward along table workspace ($+X / -X$) |
@@ -76,153 +51,196 @@ Control the arm manually using a **3Dconnexion SpaceMouse** or **Keyboard**:
 | `I / K` | Wrist Pitch $\pm$ |
 | `J / L` | Wrist Yaw $\pm$ |
 | `[ / ]` | Open / Close Gripper |
-| `Space` or `C` | Start / Stop & Save Episode Recording |
+| `Space` / `C` | Start / Stop & Save Episode Recording |
 | `N` | Discard Current Episode Buffer |
 | `H` | Reset to Home Pose & Re-randomize Cubes |
 | `Q` / `Esc` | Quit Teleoperation |
 
 ---
 
-## 3. Dataset Inspection & Video Export
+### Automated Data Collection Mode
+Collect verified multi-modal demonstration episodes automatically. The autonomous controller generates realistic trajectories with tabletop cube pose randomization, picking the red cube and placing it into the target blue bin.
 
-### Visualizer Window
-Replay recorded episodes with synchronized 4-camera views:
+#### Interactive GUI Mode:
 ```bash
-./docker_run.sh --viz --data-dir data/red_block_dataset --episode 0
+./docker_run.sh --auto-collect --num-episodes 10 --task "place the red block in blue bin" --data-dir data/red_block_dataset
 ```
 
-### Export Multi-View HD Video
-Export a stitched 4-camera composite HD video (`1280x1440` @ 30 FPS) with telemetry overlays:
+#### Fast Headless Mode:
 ```bash
-./docker_run.sh --export-video --data-dir data/red_block_dataset --episode 0 --output episode_0000.mp4
+./docker_run.sh --auto-collect --num-episodes 50 --task "place the red block in blue bin" --data-dir data/red_block_dataset --headless
 ```
 
 ---
 
-## 4. Hugging Face Hub Upload
+### Tuning Autonomous Agent Parameters
 
-The dataset is recorded in official **LeRobot v2.0 / v2.1** format (`.parquet` tables, chunked `.mp4` videos, `meta/stats.json`), allowing instant visualization on the [Hugging Face LeRobot Visualizer Space](https://huggingface.co/spaces/lerobot/visualize_dataset).
+The autonomous pick-and-place agent is driven by closed-loop differential Inverse Kinematics (`src/auto_collect.py`). You can tune trajectory waypoints, heights, speeds, and spawn randomization directly in `src/auto_collect.py` and `src/environment/env.py`:
 
-### 1. Authenticate with Hugging Face (Once)
-```bash
-pip install huggingface_hub
-huggingface-cli login
-```
-
-### 2. Upload Dataset
-```bash
-./docker_run.sh --upload --data-dir data/red_block_dataset --repo-id your_hf_username/dataset_name
-```
-*Add `--private` to create a private repository.*
+| Parameter | Location | Default Value | Description |
+|---|---|---|---|
+| `TARGET_BIN_POS` | `src/auto_collect.py` | `[0.35, 0.32, 0.15]` | Target blue bin 3D center position |
+| `HOVER_HEIGHT` | `src/auto_collect.py` | `0.28` (m) | Pre-grasp approach height hovering above cube |
+| `GRASP_HEIGHT` | `src/auto_collect.py` | `0.165` (m) | Descent Z-level for closing finger pads on cube |
+| `TRANSIT_HEIGHT` | `src/auto_collect.py` | `0.32` (m) | Lift height while carrying cube across table |
+| `GRIPPER_OPEN / CLOSED` | `src/auto_collect.py` | `0.04` / `0.00` | Parallel gripper actuator opening/closing limits |
+| `d_xy` Jitter Range | `src/environment/env.py` | `[-0.018, 0.018]` (m) | Tabletop cube spawn position noise range |
 
 ---
 
-## 5. Policy Training with Hugging Face LeRobot
+## 3. Policy Training
 
-Train state-of-the-art imitation learning and Vision-Language-Action (VLA) foundation models directly using the official **[Hugging Face LeRobot](https://github.com/huggingface/lerobot)** library.
+### Training on Local Machine
+Train policies directly using official **Hugging Face LeRobot** (`lerobot-train` CLI integration) with step-based schedules, EMA, learning rate warmups, and serialized pre/postprocessors. Pass your Hugging Face dataset repo ID (`--repo-id`) and optional local dataset root (`--dataset-root`):
 
-### 1. Fine-Tune SmolVLA (Vision-Language-Action Foundation Model)
-SmolVLA is initialized from official pretrained base weights (`lerobot/smolvla_base` / `SmolVLM2-500M-Video-Instruct`) and fine-tunes the action flow-matching expert head conditioned on your dataset's natural language instructions (`"place the red block in blue bin"`) and multi-camera feeds.
+> 💡 **Automatic Directory Versioning**: Output directories auto-increment (`outputs/train/smolvla_piper`, `outputs/train/smolvla_piper_1`, `outputs/train/smolvla_piper_2`, etc.) so subsequent training runs never overwrite past checkpoints.
 
+#### 1. Fine-Tune SmolVLA (Vision-Language-Action Foundation Model)
 ```bash
-# Fine-tune SmolVLA from pretrained base weights on GPU
-./docker_run.sh --train --dataset-dir data/red_block_dataset --policy-type smolvla --pretrained-path lerobot/smolvla_base --epochs 5 --batch-size 8 --output-dir checkpoints/smolvla_lerobot
+./docker_run.sh --train \
+  --repo-id <HF_USER>/<DATASET_REPO_ID> \
+  --dataset-root data/red_block_dataset \
+  --policy-type smolvla \
+  --pretrained-path lerobot/smolvla_base \
+  --steps 20000
 ```
 
-### 2. Train ACT (Action Chunking with Transformers)
-ACT uses ResNet-18 vision encoders + CVAE + Transformer Decoders for fast, millimeter-accurate manipulation trajectories.
-
+#### 2. Train Diffusion Policy (Recommended for Piper Arm)
 ```bash
-# Train ACT policy for 30 epochs on GPU
-./docker_run.sh --train --dataset-dir data/red_block_dataset --policy-type act --epochs 30 --batch-size 16 --chunk-size 30 --output-dir checkpoints/act_lerobot
+# Option A: Train by defining Epochs & Batch Size
+./docker_run.sh --train \
+  --repo-id <HF_USER>/<DATASET_REPO_ID> \
+  --dataset-root data/red_block_dataset \
+  --policy-type diffusion \
+  --epochs 20 \
+  --batch-size 32
+
+# Option B: Train by defining Steps directly
+./docker_run.sh --train \
+  --repo-id <HF_USER>/<DATASET_REPO_ID> \
+  --dataset-root data/red_block_dataset \
+  --policy-type diffusion \
+  --steps 20000 \
+  --batch-size 16
 ```
 
-### 3. Train Diffusion Policy
-Diffusion Policy uses score-based diffusion denoising to represent multi-modal trajectory distributions.
-
+#### 3. Train ACT (Action Chunking with Transformers)
 ```bash
-# Train Diffusion Policy on GPU
-./docker_run.sh --train --dataset-dir data/red_block_dataset --policy-type diffusion --epochs 30 --batch-size 16 --output-dir checkpoints/diffusion_lerobot
+./docker_run.sh --train \
+  --repo-id <HF_USER>/<DATASET_REPO_ID> \
+  --dataset-root data/red_block_dataset \
+  --policy-type act \
+  --epochs 20 \
+  --batch-size 16
 ```
 
-#### Training Parameters:
+---
+
+### Configurable Training Flags
+
+| Flag | Default | Description |
+| :--- | :--- | :--- |
+| **`--epochs N`** | `None` | Set training duration by **number of epochs** (automatically calculates matching steps) |
+| **`--steps N`** | `20000` | Set training duration by **total steps** |
+| **`--batch-size N`** | `16` | Mini-batch size for training |
+| **`--save-freq N`** | `20000` | Frequency in steps to save intermediate checkpoints (e.g., `--save-freq 5000`) |
+| **`--policy-type TYPE`** | `act` | Model architecture (`act`, `diffusion`, or `smolvla`) |
+| **`--dataset-root PATH`** | `data/red_block_dataset` | Path to local dataset folder |
+| **`--output-dir PATH`** | Auto-incremented | Custom checkpoint output folder |
+
+---
+
+### Step Count vs. Epoch Breakdown (16,960 Frames, Batch Size 16)
+
+LeRobot training is **step-based**. 1 full epoch (100% of dataset) = **1,060 steps**.
+
+| Training Steps | Frames Processed | Equivalent Epochs | Usage Recommendation |
+| :--- | :--- | :--- | :--- |
+| **200 steps** | 3,200 frames | **~0.19 Epochs** (~19%) | Quick code / GPU sanity check |
+| **1,060 steps** | 16,960 frames | **1.0 Epoch** (100%) | Single epoch benchmark |
+| **20,000 steps** *(Default)* | 320,000 frames | **~18.9 Epochs** | standard policy training |
+| **50,000 steps** | 800,000 frames | **~47.2 Epochs** | Full convergence training |
+
+---
+
+### Training on Cloud GPUs (RunPod, Lambda, AWS, GCP) & Model Export
+
+#### Option A: Hugging Face Hub Auto-Sync (Recommended)
+Train in the cloud streaming your dataset directly from Hugging Face, and automatically push trained checkpoints back to Hugging Face Hub:
+
+```bash
+# On Cloud Instance:
+export HF_TOKEN="hf_YourToken"
+./docker_run.sh --train \
+  --repo-id <HF_USER>/<DATASET_REPO_ID> \
+  --policy-type diffusion \
+  --steps 50000 \
+  --push-to-hub \
+  --policy-repo-id <HF_USER>/<POLICY_REPO_ID>
+```
+
+Download trained policy locally:
+```bash
+# On Local Machine:
+huggingface-cli download <HF_USER>/<POLICY_REPO_ID> --local-dir outputs/train/diffusion_piper/checkpoints/last/pretrained_model
+```
+
+#### Option B: Direct File Sync via `rsync`
+Sync trained policy checkpoint folder from cloud instance to local machine:
+```bash
+rsync -avz \
+  ubuntu@<CLOUD_INSTANCE_IP>:/home/ubuntu/mujoco-testbench/outputs/train/ \
+  ~/projects/mujoco-testbench/outputs/train/
+```
+
+---
+
+## 4. Policy Evaluation & Benchmarking
+
+Benchmark trained policy checkpoints in closed-loop MuJoCo simulation with full preprocessor normalization and action un-normalization:
+
+### Complete Evaluation Command
+```bash
+./docker_run.sh --eval \
+    --checkpoint checkpoints/act_lerobot/best_model \
+    --num-episodes 10 \
+    --max-steps 350 \
+    --headless \
+    --save-video \
+    --video-dir eval_videos
+```
+
+### Available Evaluation Parameters:
 | Argument | Default | Description |
 |---|---|---|
-| `--dataset-dir` | `data/red_block_dataset` | Path to recorded LeRobot dataset |
-| `--policy-type` | `act` | Model architecture: `smolvla`, `act`, or `diffusion` |
-| `--pretrained-path` | `None` (or `lerobot/smolvla_base`) | Pretrained model checkpoint / Hub repo to fine-tune from |
-| `--epochs` | `50` | Number of training epochs |
-| `--batch-size` | `16` | Mini-batch size |
-| `--lr` | `1e-4` | Learning rate with cosine schedule |
-| `--chunk-size` | `30` | Action prediction chunk horizon (1.0s @ 30 FPS) |
-| `--output-dir` | `checkpoints/act_lerobot` | Output model folder (`best_model/model.safetensors`, `config.json`) |
+| `--checkpoint PATH` | `checkpoints/act_lerobot/best_model` | Model directory or Hugging Face Hub repo ID |
+| `--num-episodes N` | `10` | Number of test evaluation episodes |
+| `--max-steps N` | `350` | Maximum timesteps per episode before timeout |
+| `--headless` | `False` | Run in headless mode without opening GUI viewer |
+| `--save-video` | `False` | Save rollout video MP4s |
+| `--video-dir PATH` | `eval_videos` | Output directory for rollout videos |
 
 ---
 
-## 6. Policy Evaluation & Benchmark
+## 5. Dataset Specifications (LeRobot v3.0)
 
-Benchmark your trained policy checkpoint in closed-loop MuJoCo simulation across randomized test episodes:
-
-### Evaluate SmolVLA
-```bash
-./docker_run.sh --eval --checkpoint checkpoints/smolvla_lerobot/best_model --num-episodes 10
-```
-
-### Evaluate ACT
-```bash
-./docker_run.sh --eval --checkpoint checkpoints/act_lerobot/best_model --num-episodes 10
-```
-
-### Headless Benchmark & Export Rollout Videos
-```bash
-./docker_run.sh --eval --checkpoint checkpoints/smolvla_lerobot/best_model --num-episodes 20 --headless --save-video --video-dir eval_videos
-```
-
-#### Evaluation Metrics Output:
-- **Success Rate (%)**: Percentage of episodes where the cube was placed inside the target blue bin.
-- **Execution Length**: Average timesteps / seconds to completion.
-- **Rollout Videos**: Saved to `eval_videos/eval_episode_XXXX.mp4`.
-
----
-
-## 7. Human-in-the-Loop Reinforcement Learning (HIL-SERL)
-
-**HIL-SERL** (*Human-in-the-Loop Sample-Efficient Robotic Reinforcement Learning*, developed by UC Berkeley RAIL) enables dexterous manipulation by combining off-policy RL (SAC / DrQ-v2) with live human interventions and vision-based reward classifiers.
-
-### Key Architecture:
-1. **Offline Demonstrations**: Initialize actor-critic replay buffers and train a binary success classifier on human teleoperated episodes.
-2. **Actor-Learner Interaction Loop**: The RL policy acts in the MuJoCo simulation or real arm while an asynchronous learner updates Q-networks and policy weights.
-3. **Live Human Interventions**: Whenever the robot enters an unproductive or unsafe state, the human takes control via SpaceMouse or Keyboard (`W/A/S/D/R/F`). The intervention transitions are stored directly in the replay buffer with high priority, guiding the policy toward success in <1–2 hours of interaction.
-
-### Running HIL-SERL with Piper:
-```bash
-# 1. Collect 10 baseline demonstrations for the reward classifier
-./docker_run.sh --task "place the red block in blue bin" --data-dir data/hil_serl_demos
-
-# 2. Launch HIL-SERL actor loop with live SpaceMouse intervention
-./docker_run.sh python -m src.environment.hil_serl_agent --demo-dir data/hil_serl_demos --interactive
-```
-
----
-
-## Dataset Specification
+Datasets are saved in the official **LeRobot v3.0** schema with chunked Parquet tables and H.264 compressed MP4 videos:
 
 ```
 data/red_block_dataset/
 ├── meta/
-│   ├── info.json              # Schema, codebase version v2.0, split definitions
-│   ├── stats.json             # Normalization statistics (min, max, mean, std)
-│   ├── episodes.jsonl         # Episode index, lengths, and task mapping
-│   └── tasks.jsonl            # Language task prompts
+│   ├── info.json                      # Schema specification, codebase version v3.0
+│   ├── stats.json                     # Normalization stats (min, max, mean, std)
+│   ├── tasks.parquet                  # Language instructions
+│   └── episodes/
+│       └── chunk-000/
+│           └── file-000.parquet       # Per-episode chunk index metadata
 ├── data/
 │   └── chunk-000/
-│       ├── episode_000000.parquet  # [observation.state, action, timestamp, indices]
-│       └── episode_000000.npz      # Fast NumPy replay cache
+│       └── file-000.parquet           # Timestamps, joint states, joint actions
 └── videos/
     └── chunk-000/
-        ├── observation.images.wrist/episode_000000.mp4       # (240x320) Wrist RGB
-        ├── observation.images.wrist_depth/episode_000000.mp4 # (240x320) Turbo Colormap Depth
-        ├── observation.images.extrinsic/episode_000000.mp4   # (240x320) Scene Overview
-        └── observation.images.topdown/episode_000000.mp4     # (240x320) Topdown View
+        ├── observation.images.wrist/file-000.mp4       # Wrist RGB (H.264)
+        ├── observation.images.extrinsic/file-000.mp4   # Scene Overview (H.264)
+        └── observation.images.topdown/file-000.mp4     # Topdown View (H.264)
 ```
-
