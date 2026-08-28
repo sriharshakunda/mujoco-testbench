@@ -5,7 +5,7 @@
 
 set -e
 
-IMAGE_NAME="piper_robot_decompose:latest"
+IMAGE_NAME="mujoco-testbench:latest"
 
 # 1. Allow local X11 connections for GUI viewer
 xhost +local:root 2>/dev/null || true
