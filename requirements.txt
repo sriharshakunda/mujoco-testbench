@@ -2,9 +2,8 @@
 mujoco>=2.3.0
 
 # Scientific Computing & Kinematics
-numpy>=1.24.0,<2.0.0
+numpy>=1.24.0
 scipy>=1.11.0
-pin>=2.7.0
 
 # Visualization & Multi-Camera Display
 matplotlib>=3.8.0
@@ -15,6 +14,14 @@ glfw>=2.5.0
 
 # Progress Feedback
 tqdm>=4.66.0
+
+# Deep Learning, Policy Training & VLA Frameworks
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.45.0
+accelerate>=0.30.0
+num2words>=0.5.13
+lerobot>=0.4.0
 
 # Hugging Face & VLA Dataset Management
 huggingface_hub>=0.20.0

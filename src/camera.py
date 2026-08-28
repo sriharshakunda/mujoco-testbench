@@ -12,8 +12,12 @@ Coordinate conventions
 - Point cloud : returned in world frame (metres).
 """
 
+import os
 import numpy as np
 import mujoco
+
+if "MUJOCO_GL" not in os.environ and "DISPLAY" not in os.environ:
+    os.environ["MUJOCO_GL"] = "egl"
 
 
 class WristCamera:

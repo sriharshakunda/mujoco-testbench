@@ -16,9 +16,9 @@ N_GRIPPER = 1        # single actuator; equality mirrors to finger2
 N_JOINTS = N_ARM_JOINTS + N_GRIPPER
 
 # Official ready configuration: arm upright, hovering over table workspace
-HOME_QPOS = np.array([0.0, -3.14, -0.22, 0.0, 0.0, 0.0, 0.0, 0.0])
-#                    j1   j2    j3     j4   j5    j6   g1   g2
-HOME_CTRL = np.array([0.0, -3.14, -0.22, 0.0, 0.0, 0.0, 0.0])
+HOME_QPOS = np.array([0.0, -3.10, -0.25, 0.0, 0.0, 0.0, 0.04, -0.04])
+#                    j1   j2    j3     j4   j5    j6   g1    g2
+HOME_CTRL = np.array([0.0, -3.10, -0.25, 0.0, 0.0, 0.0, 0.04])
 #                    act1 act2  act3   act4 act5  act6 gripper
 # Standard zero home configuration
 
@@ -88,8 +88,10 @@ class PiperEnv:
         return self._get_obs(), {}
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
-        """Apply joint torques and advance one timestep."""
-        self.data.ctrl[:] = np.clip(action, -1.0, 1.0)
+        """Apply joint positions/torques and advance one timestep."""
+        ctrl_min = self.model.actuator_ctrlrange[:, 0]
+        ctrl_max = self.model.actuator_ctrlrange[:, 1]
+        self.data.ctrl[:len(action)] = np.clip(action, ctrl_min[:len(action)], ctrl_max[:len(action)])
         mujoco.mj_step(self.model, self.data)
         self._step_count += 1
 

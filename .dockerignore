@@ -68,10 +68,10 @@ models/*.pth
 models/*.pt
 models/*.h5
 checkpoints/
+eval_videos/
 
 # Data directories (should be mounted as volumes)
-data/raw/
-data/processed/
+data/
 
 # OpenSpec and development
 openspec/

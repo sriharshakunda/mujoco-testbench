@@ -25,29 +25,87 @@ if command -v nvidia-smi &>/dev/null; then
 fi
 
 # 4. Check /dev/input permissions for SpaceMouse
-if [ -d "/dev/input" ]; then
-    sudo chmod -R a+rw /dev/input 2>/dev/null || true
+if [ -d "/dev/input" ] && [ -w "/dev/input" ]; then
+    chmod -R a+rw /dev/input 2>/dev/null || true
 fi
 
-# 5. Route subcommands (--viz, --upload, --export-video, --convert, or default app.py)
-CMD=(python app.py)
-if [ "$1" == "--viz" ]; then
-    shift
-    CMD=(python -m src.visualize_dataset)
-elif [ "$1" == "--upload" ]; then
-    shift
-    CMD=(python -m src.upload_dataset)
-elif [ "$1" == "--export-video" ] || [ "$1" == "--export" ]; then
-    shift
-    CMD=(python -m src.export_video)
-elif [ "$1" == "--convert" ]; then
-    shift
-    CMD=(python -m src.convert_dataset_to_mp4)
-elif [ "$1" == "python" ] || [ "$1" == "bash" ]; then
-    CMD=()
-fi
+# 5. Route subcommands (--auto-collect, --train, --eval, --viz, --upload, --export-video, --convert, or default app.py)
+MODE="app"
+ARGS=()
 
-echo -e "\033[1;32m[Docker] Launching container (Command: ${CMD[*]} $@) ...\033[0m"
+for arg in "$@"; do
+    case "$arg" in
+        --auto-collect|--collect)
+            MODE="auto_collect"
+            ;;
+        --train)
+            MODE="train"
+            ;;
+        --eval|--evaluate)
+            MODE="eval"
+            ;;
+        --lerobot-train)
+            MODE="lerobot_train"
+            ;;
+        --lerobot-eval)
+            MODE="lerobot_eval"
+            ;;
+        --viz)
+            MODE="viz"
+            ;;
+        --upload)
+            MODE="upload"
+            ;;
+        --export-video|--export)
+            MODE="export_video"
+            ;;
+        --convert)
+            MODE="convert"
+            ;;
+        *)
+            ARGS+=("$arg")
+            ;;
+    esac
+done
+
+case "$MODE" in
+    auto_collect)
+        CMD=(python -m src.auto_collect)
+        ;;
+    train)
+        CMD=(python -m src.train_policy)
+        ;;
+    eval)
+        CMD=(python -m src.evaluate_policy)
+        ;;
+    lerobot_train)
+        CMD=(python -m lerobot.scripts.train)
+        ;;
+    lerobot_eval)
+        CMD=(python -m lerobot.scripts.eval)
+        ;;
+    viz)
+        CMD=(python -m src.visualize_dataset)
+        ;;
+    upload)
+        CMD=(python -m src.upload_dataset)
+        ;;
+    export_video)
+        CMD=(python -m src.export_video)
+        ;;
+    convert)
+        CMD=(python -m src.convert_dataset_to_mp4)
+        ;;
+    app)
+        if [ "${ARGS[0]}" == "python" ] || [ "${ARGS[0]}" == "bash" ]; then
+            CMD=()
+        else
+            CMD=(python app.py)
+        fi
+        ;;
+esac
+
+echo -e "\033[1;32m[Docker] Launching container (Command: ${CMD[*]} ${ARGS[*]}) ...\033[0m"
 
 HF_ENV_FLAG=()
 if [ -n "$HF_TOKEN" ]; then
@@ -68,4 +126,4 @@ docker run -it --rm \
     -v "$HOME/.cache/huggingface:/root/.cache/huggingface:rw" \
     -w /app \
     "$IMAGE_NAME" \
-    "${CMD[@]}" "$@"
+    "${CMD[@]}" "${ARGS[@]}"
