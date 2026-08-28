@@ -29,7 +29,7 @@ if [ -d "/dev/input" ]; then
     sudo chmod -R a+rw /dev/input 2>/dev/null || true
 fi
 
-# 5. Route subcommands (--viz, --upload, --export-video, or default app.py)
+# 5. Route subcommands (--viz, --upload, --export-video, --convert, or default app.py)
 CMD=(python app.py)
 if [ "$1" == "--viz" ]; then
     shift
@@ -40,20 +40,28 @@ elif [ "$1" == "--upload" ]; then
 elif [ "$1" == "--export-video" ] || [ "$1" == "--export" ]; then
     shift
     CMD=(python -m src.export_video)
+elif [ "$1" == "--convert" ]; then
+    shift
+    CMD=(python -m src.convert_dataset_to_mp4)
 elif [ "$1" == "python" ] || [ "$1" == "bash" ]; then
     CMD=()
 fi
 
 echo -e "\033[1;32m[Docker] Launching container (Command: ${CMD[*]} $@) ...\033[0m"
 
+HF_ENV_FLAG=()
+if [ -n "$HF_TOKEN" ]; then
+    HF_ENV_FLAG=(-e HF_TOKEN="$HF_TOKEN")
+fi
+
 # 6. Run container interactively
 docker run -it --rm \
     $GPU_FLAG \
+    "${HF_ENV_FLAG[@]}" \
     --net=host \
     --ipc=host \
     --privileged \
     -e DISPLAY="$DISPLAY" \
-    -e HF_TOKEN="$HF_TOKEN" \
     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
     -v /dev/input:/dev/input:rw \
     -v "$(pwd)":/app \

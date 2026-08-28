@@ -25,11 +25,13 @@ def upload_to_huggingface(data_dir: str, repo_id: str, private: bool = False, to
         print(f"\033[1;31mError: Directory '{data_dir}' does not exist.\033[0m")
         sys.exit(1)
 
-    api = HfApi(token=token or os.environ.get("HF_TOKEN"))
+    hf_token = token or os.environ.get("HF_TOKEN") or None
+
+    api = HfApi(token=hf_token)
 
     print(f"\n\033[1;34m[Hugging Face Upload] Preparing repository '{repo_id}' (private={private})...\033[0m")
     try:
-        create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True, token=token)
+        create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True, token=hf_token)
         print(f"\033[1;32m✓ Repository '{repo_id}' verified/created.\033[0m")
     except Exception as e:
         print(f"\033[1;31mFailed to create/access repo: {e}\033[0m")
@@ -43,6 +45,8 @@ def upload_to_huggingface(data_dir: str, repo_id: str, private: bool = False, to
             folder_path=str(data_path),
             repo_id=repo_id,
             repo_type="dataset",
+            delete_patterns=["*"],
+            token=hf_token,
         )
         print(f"\n\033[1;32m========================================================================")
         print(f"  ✓ Successfully uploaded dataset to:")

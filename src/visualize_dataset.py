@@ -29,6 +29,27 @@ from PIL import Image, ImageDraw
 from src.telemetry_plotter import TelemetryGraphPlotter
 
 
+def read_mp4_frames(video_path: Path) -> List[np.ndarray]:
+    """Read all RGB frames from an MP4 video file using cv2 with fallback."""
+    if not video_path.exists():
+        return []
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(video_path))
+        frames = []
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        cap.release()
+        if frames:
+            return frames
+    except Exception:
+        pass
+    return []
+
+
 def load_dataset_metadata(data_dir: Path):
     """Load info.json and episodes.jsonl metadata."""
     info_path = data_dir / "meta" / "info.json"
@@ -77,7 +98,7 @@ class OfflineDatasetVisualizer:
         )
 
     def _load_episode(self, ep_idx: int):
-        """Load video frames, 3D depth, and states for an episode with instant NPZ & parallel fallback."""
+        """Load video frames, 3D depth, and states for an episode with instant NPZ & MP4/PNG fallback."""
         self.cur_ep_idx = max(0, min(ep_idx, len(self.episodes) - 1))
         self.cur_frame_idx = 0
         ep_info = self.episodes[self.cur_ep_idx]
@@ -109,7 +130,33 @@ class OfflineDatasetVisualizer:
             except Exception:
                 pass
 
-        # 2. Parallel fallback: Load PNG sequences using ThreadPoolExecutor
+        # 2. Fallback: Load from MP4 videos
+        if not loaded_from_npz:
+            wrist_mp4 = self.data_dir / "videos" / "chunk-000" / "observation.images.wrist" / f"episode_{ep_id:06d}.mp4"
+            depth_mp4 = self.data_dir / "videos" / "chunk-000" / "observation.images.wrist_depth" / f"episode_{ep_id:06d}.mp4"
+            extrinsic_mp4 = self.data_dir / "videos" / "chunk-000" / "observation.images.extrinsic" / f"episode_{ep_id:06d}.mp4"
+            topdown_mp4 = self.data_dir / "videos" / "chunk-000" / "observation.images.topdown" / f"episode_{ep_id:06d}.mp4"
+
+            if not wrist_mp4.exists():
+                wrist_mp4 = self.data_dir / "videos" / "observation.images.wrist" / f"episode_{ep_id:06d}.mp4"
+                depth_mp4 = self.data_dir / "videos" / "observation.images.wrist_depth" / f"episode_{ep_id:06d}.mp4"
+                extrinsic_mp4 = self.data_dir / "videos" / "observation.images.extrinsic" / f"episode_{ep_id:06d}.mp4"
+                topdown_mp4 = self.data_dir / "videos" / "observation.images.topdown" / f"episode_{ep_id:06d}.mp4"
+
+            if wrist_mp4.exists():
+                self.wrist_frames = read_mp4_frames(wrist_mp4)
+                self.extrinsic_frames = read_mp4_frames(extrinsic_mp4)
+                self.topdown_frames = read_mp4_frames(topdown_mp4)
+                depth_raw = read_mp4_frames(depth_mp4)
+                self.n_frames = len(self.wrist_frames)
+                if depth_raw:
+                    # Normalized depth to approx meters (0.05m - 1.5m)
+                    self.depth_frames = [(f[:, :, 0].astype(np.float32) / 255.0) * 1.45 + 0.05 for f in depth_raw]
+                else:
+                    self.depth_frames = [np.ones((240, 320), dtype=np.float32) * 0.5] * self.n_frames
+                loaded_from_npz = True
+
+        # 3. Legacy Fallback: Load PNG sequences using ThreadPoolExecutor
         if not loaded_from_npz:
             wrist_pngs = sorted(glob.glob(str(self.data_dir / "videos" / "observation.images.wrist" / f"episode_{ep_id:06d}" / "*.png")))
             depth_pngs = sorted(glob.glob(str(self.data_dir / "videos" / "observation.images.wrist_depth" / f"episode_{ep_id:06d}" / "*.png")))

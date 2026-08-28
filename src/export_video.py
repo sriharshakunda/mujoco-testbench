@@ -74,6 +74,27 @@ def load_dataset_metadata(data_dir: Path):
     return info, episodes
 
 
+def read_mp4_frames(video_path: Path) -> List[np.ndarray]:
+    """Read all RGB frames from an MP4 video file using cv2."""
+    if not video_path.exists():
+        return []
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(video_path))
+        frames = []
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        cap.release()
+        if frames:
+            return frames
+    except Exception:
+        pass
+    return []
+
+
 def load_episode_data(data_dir: Path, ep_id: int):
     """Load video frames, depth, and states for an episode."""
     npz_path = data_dir / "data" / "chunk-000" / f"episode_{ep_id:06d}.npz"
@@ -93,7 +114,30 @@ def load_episode_data(data_dir: Path, ep_id: int):
         except Exception:
             pass
 
-    # Fallback to PNG sequences
+    # Fallback to MP4 videos
+    wrist_mp4 = data_dir / "videos" / "chunk-000" / "observation.images.wrist" / f"episode_{ep_id:06d}.mp4"
+    depth_mp4 = data_dir / "videos" / "chunk-000" / "observation.images.wrist_depth" / f"episode_{ep_id:06d}.mp4"
+    extrinsic_mp4 = data_dir / "videos" / "chunk-000" / "observation.images.extrinsic" / f"episode_{ep_id:06d}.mp4"
+    topdown_mp4 = data_dir / "videos" / "chunk-000" / "observation.images.topdown" / f"episode_{ep_id:06d}.mp4"
+
+    if not wrist_mp4.exists():
+        wrist_mp4 = data_dir / "videos" / "observation.images.wrist" / f"episode_{ep_id:06d}.mp4"
+        depth_mp4 = data_dir / "videos" / "observation.images.wrist_depth" / f"episode_{ep_id:06d}.mp4"
+        extrinsic_mp4 = data_dir / "videos" / "observation.images.extrinsic" / f"episode_{ep_id:06d}.mp4"
+        topdown_mp4 = data_dir / "videos" / "observation.images.topdown" / f"episode_{ep_id:06d}.mp4"
+
+    if wrist_mp4.exists():
+        wrist_frames = read_mp4_frames(wrist_mp4)
+        extrinsic_frames = read_mp4_frames(extrinsic_mp4)
+        topdown_frames = read_mp4_frames(topdown_mp4)
+        depth_raw = read_mp4_frames(depth_mp4)
+        if depth_raw:
+            depth_frames = [(f[:, :, 0].astype(np.float32) / 255.0) * 1.45 + 0.05 for f in depth_raw]
+        else:
+            depth_frames = [np.ones((240, 320), dtype=np.float32) * 0.5] * len(wrist_frames)
+        return wrist_frames, depth_frames, extrinsic_frames, topdown_frames, states, actions
+
+    # Legacy fallback to PNG sequences
     wrist_pngs = sorted(glob.glob(str(data_dir / "videos" / "observation.images.wrist" / f"episode_{ep_id:06d}" / "*.png")))
     depth_pngs = sorted(glob.glob(str(data_dir / "videos" / "observation.images.wrist_depth" / f"episode_{ep_id:06d}" / "*.png")))
     extrinsic_pngs = sorted(glob.glob(str(data_dir / "videos" / "observation.images.extrinsic" / f"episode_{ep_id:06d}" / "*.png")))
@@ -288,12 +332,12 @@ def main():
                         help="Export all recorded episodes in the dataset")
     parser.add_argument("--output", type=str, default=None,
                         help="Custom output MP4 file path (default: exports/episode_XXXXXX.mp4)")
-    parser.add_argument("--upscale", type=int, default=1, choices=[1, 2],
-                        help="Resolution upscale multiplier (1 = 640x720, 2 = 1280x1440 HD for social media)")
+    parser.add_argument("--upscale", type=int, default=2, choices=[1, 2, 3],
+                        help="Resolution upscale multiplier (1 = 640x720, 2 = 1280x1440 HD, 3 = 1920x2160 4K)")
     parser.add_argument("--fps", type=int, default=30,
                         help="Video framerate (default: 30)")
-    parser.add_argument("--crf", type=int, default=18,
-                        help="H.264 video quality CRF (default: 18, lower is higher quality)")
+    parser.add_argument("--crf", type=int, default=14,
+                        help="H.264 video quality CRF (default: 14, lower is higher quality)")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)

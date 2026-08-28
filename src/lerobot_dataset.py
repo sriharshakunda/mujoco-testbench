@@ -20,11 +20,12 @@ import os
 import sys
 import json
 import time
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
-from PIL import Image
 
 
 try:
@@ -62,6 +63,212 @@ except ImportError:
             sys.stdout.flush()
 
 
+def get_ffmpeg_binary() -> str:
+    """Find available ffmpeg binary from imageio_ffmpeg, system PATH, or common locations."""
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.exists(exe):
+            return exe
+    except Exception:
+        pass
+
+    sys_ffmpeg = shutil.which("ffmpeg")
+    if sys_ffmpeg:
+        return sys_ffmpeg
+
+    for p in ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"]:
+        if os.path.exists(p):
+            return p
+
+    raise FileNotFoundError("Could not find ffmpeg binary. Please install ffmpeg.")
+
+
+def depth_to_colormap(depth_arr: np.ndarray, d_min: float = 0.05, d_max: float = 1.2) -> np.ndarray:
+    """Convert depth array (N, H, W) or (H, W) in meters to rich RGB colormap."""
+    norm = np.clip((depth_arr - d_min) / (d_max - d_min + 1e-6), 0.0, 1.0)
+    u8 = (norm * 255.0).astype(np.uint8)
+    try:
+        import cv2
+        if u8.ndim == 3:
+            return np.stack([cv2.cvtColor(cv2.applyColorMap(u8[i], cv2.COLORMAP_TURBO), cv2.COLOR_BGR2RGB) for i in range(len(u8))], axis=0)
+        else:
+            return cv2.cvtColor(cv2.applyColorMap(u8, cv2.COLORMAP_TURBO), cv2.COLOR_BGR2RGB)
+    except Exception:
+        # High quality plasma fallback
+        r = np.clip(np.sin(norm * np.pi * 1.5) * 255, 0, 255).astype(np.uint8)
+        g = np.clip(np.sin(norm * np.pi) * 255, 0, 255).astype(np.uint8)
+        b = np.clip(np.cos(norm * np.pi * 0.5) * 255, 0, 255).astype(np.uint8)
+        return np.stack([r, g, b], axis=-1)
+
+
+def encode_video_stream(
+    frames: np.ndarray,
+    output_path: Path,
+    fps: int = 30,
+    crf: int = 15,
+    is_depth: bool = False,
+) -> None:
+    """Encode an array of image frames into a high-quality H.264 MP4 video using FFmpeg pipe."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    n_frames = len(frames)
+    if n_frames == 0:
+        return
+
+    if is_depth:
+        # Convert float32 depth to rich Turbo RGB colormap (blue/cyan -> yellow/white)
+        rgb_frames = depth_to_colormap(frames, d_min=0.05, d_max=1.2)
+    else:
+        rgb_frames = frames
+
+    H, W = rgb_frames.shape[1], rgb_frames.shape[2]
+    ffmpeg_bin = get_ffmpeg_binary()
+
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-f", "rawvideo",
+        "-vcodec", "rawvideo",
+        "-s", f"{W}x{H}",
+        "-pix_fmt", "rgb24",
+        "-r", str(fps),
+        "-i", "-",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-preset", "medium",
+        "-g", str(fps),             # Keyframe every 1 second for smooth scrubbing
+        "-crf", str(crf),           # High fidelity / near-lossless CRF
+        str(output_path),
+    ]
+
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    proc.stdin.write(rgb_frames.tobytes())
+    proc.stdin.close()
+    proc.wait()
+
+    if proc.returncode != 0:
+        _, stderr = proc.communicate()
+        raise RuntimeError(f"FFmpeg encoding failed for {output_path}: {stderr.decode()}")
+
+
+def save_parquet_episode(
+    parquet_path: Path,
+    states: np.ndarray,
+    actions: np.ndarray,
+    timestamps: np.ndarray,
+    frame_indices: np.ndarray,
+    episode_indices: np.ndarray,
+    indices: np.ndarray,
+    task_indices: np.ndarray,
+) -> None:
+    """Save episodic tabular telemetry in Apache Parquet format for official LeRobot."""
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        table = pa.Table.from_arrays(
+            [
+                pa.array(states.tolist(), type=pa.list_(pa.float32())),
+                pa.array(actions.tolist(), type=pa.list_(pa.float32())),
+                pa.array(timestamps.astype(np.float32)),
+                pa.array(frame_indices.astype(np.int64)),
+                pa.array(episode_indices.astype(np.int64)),
+                pa.array(indices.astype(np.int64)),
+                pa.array(task_indices.astype(np.int64)),
+            ],
+            names=[
+                "observation.state",
+                "action",
+                "timestamp",
+                "frame_index",
+                "episode_index",
+                "index",
+                "task_index",
+            ],
+        )
+        pq.write_table(table, str(parquet_path))
+    except Exception as e:
+        print(f"\033[1;33mWarning: Failed to write Parquet table ({e})\033[0m")
+
+
+def update_dataset_stats(meta_dir: Path, data_dir: Path) -> None:
+    """Compute and save meta/stats.json for official LeRobot normalization & Hugging Face visualizer."""
+    import glob
+    npz_files = sorted(glob.glob(str(data_dir / "*.npz")))
+    parquet_files = sorted(glob.glob(str(data_dir / "*.parquet")))
+
+    all_states, all_actions, all_timestamps = [], [], []
+    all_frame_indices, all_episode_indices, all_indices, all_task_indices = [], [], [], []
+
+    if npz_files:
+        for p in npz_files:
+            try:
+                data = np.load(p)
+                all_states.append(data["observation.state"])
+                all_actions.append(data["action"])
+                all_timestamps.append(data["timestamp"])
+                all_frame_indices.append(data["frame_index"])
+                all_episode_indices.append(data["episode_index"])
+                all_indices.append(data["index"])
+                all_task_indices.append(data["task_index"])
+            except Exception:
+                pass
+    elif parquet_files:
+        try:
+            import pyarrow.parquet as pq
+            for p in parquet_files:
+                table = pq.read_table(p)
+                all_states.append(np.array(table["observation.state"].to_pylist(), dtype=np.float32))
+                all_actions.append(np.array(table["action"].to_pylist(), dtype=np.float32))
+                all_timestamps.append(np.array(table["timestamp"].to_pylist(), dtype=np.float32))
+                all_frame_indices.append(np.array(table["frame_index"].to_pylist(), dtype=np.int64))
+                all_episode_indices.append(np.array(table["episode_index"].to_pylist(), dtype=np.int64))
+                all_indices.append(np.array(table["index"].to_pylist(), dtype=np.int64))
+                all_task_indices.append(np.array(table["task_index"].to_pylist(), dtype=np.int64))
+        except Exception:
+            return
+
+    if not all_states:
+        return
+
+    states_cat = np.concatenate(all_states, axis=0)
+    actions_cat = np.concatenate(all_actions, axis=0)
+    timestamps_cat = np.concatenate(all_timestamps, axis=0)
+    frame_indices_cat = np.concatenate(all_frame_indices, axis=0)
+    episode_indices_cat = np.concatenate(all_episode_indices, axis=0)
+    indices_cat = np.concatenate(all_indices, axis=0)
+    task_indices_cat = np.concatenate(all_task_indices, axis=0)
+
+    def _calc_stats(arr: np.ndarray, is_1d: bool = False):
+        if is_1d or arr.ndim == 1:
+            return {
+                "min": [float(np.min(arr))],
+                "max": [float(np.max(arr))],
+                "mean": [float(np.mean(arr))],
+                "std": [float(np.std(arr))],
+            }
+        return {
+            "min": np.min(arr, axis=0).astype(float).tolist(),
+            "max": np.max(arr, axis=0).astype(float).tolist(),
+            "mean": np.mean(arr, axis=0).astype(float).tolist(),
+            "std": np.std(arr, axis=0).astype(float).tolist(),
+        }
+
+    stats = {
+        "observation.state": _calc_stats(states_cat),
+        "action": _calc_stats(actions_cat),
+        "timestamp": _calc_stats(timestamps_cat, is_1d=True),
+        "frame_index": _calc_stats(frame_indices_cat, is_1d=True),
+        "episode_index": _calc_stats(episode_indices_cat, is_1d=True),
+        "index": _calc_stats(indices_cat, is_1d=True),
+        "task_index": _calc_stats(task_indices_cat, is_1d=True),
+    }
+
+    stats_path = meta_dir / "stats.json"
+    with open(stats_path, "w") as f:
+        json.dump(stats, f, indent=2)
+
+
 class LeRobotDatasetRecorder:
     """
     Records teleoperated robot trajectories formatted for Hugging Face LeRobot v2.0 VLA training.
@@ -81,22 +288,29 @@ class LeRobotDatasetRecorder:
         self.image_height = image_height
         self.image_width = image_width
 
-        # Directory structure
+        # Directory structure (Official LeRobot v2.0 chunk-000 structure)
         self.meta_dir = self.dataset_dir / "meta"
         self.data_dir = self.dataset_dir / "data" / "chunk-000"
+        self.videos_chunk_dir = self.dataset_dir / "videos" / "chunk-000"
+        self.wrist_video_dir = self.videos_chunk_dir / "observation.images.wrist"
+        self.wrist_depth_video_dir = self.videos_chunk_dir / "observation.images.wrist_depth"
+        self.extrinsic_video_dir = self.videos_chunk_dir / "observation.images.extrinsic"
+        self.topdown_video_dir = self.videos_chunk_dir / "observation.images.topdown"
+
+        # Backwards compatibility aliases
         self.videos_dir = self.dataset_dir / "videos"
-        self.wrist_img_dir = self.videos_dir / "observation.images.wrist"
-        self.wrist_depth_img_dir = self.videos_dir / "observation.images.wrist_depth"
-        self.extrinsic_img_dir = self.videos_dir / "observation.images.extrinsic"
-        self.topdown_img_dir = self.videos_dir / "observation.images.topdown"
+        self.wrist_img_dir = self.wrist_video_dir
+        self.wrist_depth_img_dir = self.wrist_depth_video_dir
+        self.extrinsic_img_dir = self.extrinsic_video_dir
+        self.topdown_img_dir = self.topdown_video_dir
 
         for d in [
             self.meta_dir,
             self.data_dir,
-            self.wrist_img_dir,
-            self.wrist_depth_img_dir,
-            self.extrinsic_img_dir,
-            self.topdown_img_dir,
+            self.wrist_video_dir,
+            self.wrist_depth_video_dir,
+            self.extrinsic_video_dir,
+            self.topdown_video_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)
 
@@ -152,6 +366,11 @@ class LeRobotDatasetRecorder:
                 "total_videos": 0,
                 "total_chunks": 1,
                 "chunks_size": 1000,
+                "splits": {
+                    "train": "0:0"
+                },
+                "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+                "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
                 "features": {
                     "observation.state": {
                         "dtype": "float32",
@@ -164,24 +383,52 @@ class LeRobotDatasetRecorder:
                         "names": ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "gripper"],
                     },
                     "observation.images.wrist": {
-                        "dtype": "image",
+                        "dtype": "video",
                         "shape": [self.image_height, self.image_width, 3],
                         "names": ["height", "width", "channel"],
+                        "video_info": {
+                            "video.fps": float(self.fps),
+                            "video.codec": "h264",
+                            "video.pix_fmt": "yuv420p",
+                            "video.is_depth_map": False,
+                            "has_audio": False,
+                        },
                     },
                     "observation.images.wrist_depth": {
-                        "dtype": "image",
-                        "shape": [self.image_height, self.image_width],
-                        "names": ["height", "width"],
+                        "dtype": "video",
+                        "shape": [self.image_height, self.image_width, 3],
+                        "names": ["height", "width", "channel"],
+                        "video_info": {
+                            "video.fps": float(self.fps),
+                            "video.codec": "h264",
+                            "video.pix_fmt": "yuv420p",
+                            "video.is_depth_map": True,
+                            "has_audio": False,
+                        },
                     },
                     "observation.images.extrinsic": {
-                        "dtype": "image",
+                        "dtype": "video",
                         "shape": [self.image_height, self.image_width, 3],
                         "names": ["height", "width", "channel"],
+                        "video_info": {
+                            "video.fps": float(self.fps),
+                            "video.codec": "h264",
+                            "video.pix_fmt": "yuv420p",
+                            "video.is_depth_map": False,
+                            "has_audio": False,
+                        },
                     },
                     "observation.images.topdown": {
-                        "dtype": "image",
+                        "dtype": "video",
                         "shape": [self.image_height, self.image_width, 3],
                         "names": ["height", "width", "channel"],
+                        "video_info": {
+                            "video.fps": float(self.fps),
+                            "video.codec": "h264",
+                            "video.pix_fmt": "yuv420p",
+                            "video.is_depth_map": False,
+                            "has_audio": False,
+                        },
                     },
                     "timestamp": {"dtype": "float32", "shape": [1]},
                     "frame_index": {"dtype": "int64", "shape": [1]},
@@ -238,7 +485,7 @@ class LeRobotDatasetRecorder:
         self.current_frame_idx += 1
 
     def save_episode(self, success: bool = True) -> Optional[str]:
-        """Commit and persist the 4-camera recorded episode to disk with multi-threaded speed & progress."""
+        """Commit and persist the 4-camera recorded episode directly to MP4 videos, Parquet tables, & NPZ cache."""
         if not self.is_recording or len(self._states) == 0:
             self.is_recording = False
             return None
@@ -249,7 +496,7 @@ class LeRobotDatasetRecorder:
         start_index = self.total_frames
         end_index = start_index + n_frames
 
-        print(f"\n\033[1;34m[LeRobot Recorder] Persisting Episode {ep_num:04d} ({n_frames} frames)...\033[0m")
+        print(f"\n\033[1;34m[LeRobot Recorder] Persisting Episode {ep_num:04d} ({n_frames} frames -> 4x MP4 + Parquet + NPZ)...\033[0m")
 
         # Convert to numpy arrays
         states_arr = np.array(self._states, dtype=np.float32)
@@ -260,30 +507,46 @@ class LeRobotDatasetRecorder:
         extrinsic_arr = np.array(self._extrinsic_frames, dtype=np.uint8)
         topdown_arr = np.array(self._topdown_frames, dtype=np.uint8)
 
-        # 1. Parallel multi-threaded PNG frame writing with immediate progress bar
-        ep_wrist_dir = self.wrist_img_dir / f"episode_{ep_num:06d}"
-        ep_depth_dir = self.wrist_depth_img_dir / f"episode_{ep_num:06d}"
-        ep_extrinsic_dir = self.extrinsic_img_dir / f"episode_{ep_num:06d}"
-        ep_topdown_dir = self.topdown_img_dir / f"episode_{ep_num:06d}"
+        frame_indices = np.arange(n_frames, dtype=np.int64)
+        episode_indices = np.full(n_frames, ep_num, dtype=np.int64)
+        indices = np.arange(start_index, end_index, dtype=np.int64)
+        task_indices = np.zeros(n_frames, dtype=np.int64)
 
-        for d in [ep_wrist_dir, ep_depth_dir, ep_extrinsic_dir, ep_topdown_dir]:
-            d.mkdir(parents=True, exist_ok=True)
+        # 1. Parallel multi-threaded MP4 encoding for the 4 camera streams
+        ep_wrist_mp4 = self.wrist_video_dir / f"episode_{ep_num:06d}.mp4"
+        ep_depth_mp4 = self.wrist_depth_video_dir / f"episode_{ep_num:06d}.mp4"
+        ep_extrinsic_mp4 = self.extrinsic_video_dir / f"episode_{ep_num:06d}.mp4"
+        ep_topdown_mp4 = self.topdown_video_dir / f"episode_{ep_num:06d}.mp4"
 
-        def _save_single_frame(i: int):
-            Image.fromarray(wrist_arr[i]).save(ep_wrist_dir / f"frame_{i:06d}.png")
-            Image.fromarray(extrinsic_arr[i]).save(ep_extrinsic_dir / f"frame_{i:06d}.png")
-            Image.fromarray(topdown_arr[i]).save(ep_topdown_dir / f"frame_{i:06d}.png")
-            depth_mm = np.clip(depth_arr[i] * 1000.0, 0, 65535).astype(np.uint16)
-            Image.fromarray(depth_mm).save(ep_depth_dir / f"frame_{i:06d}.png")
-            return i
+        encode_tasks = [
+            (wrist_arr, ep_wrist_mp4, False),
+            (depth_arr, ep_depth_mp4, True),
+            (extrinsic_arr, ep_extrinsic_mp4, False),
+            (topdown_arr, ep_topdown_mp4, False),
+        ]
 
-        with tqdm(total=n_frames, desc=f"Saving Episode {ep_num:04d}", unit="frames", leave=True, file=sys.stdout) as pbar:
-            with ThreadPoolExecutor(max_workers=8) as executor:
-                futures = [executor.submit(_save_single_frame, i) for i in range(n_frames)]
-                for fut in as_completed(futures):
-                    pbar.update(1)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [
+                executor.submit(encode_video_stream, frames, path, self.fps, 15, is_dep)
+                for frames, path, is_dep in encode_tasks
+            ]
+            for fut in as_completed(futures):
+                fut.result()
 
-        # 2. Save fast replay NPZ archive (<15ms)
+        # 2. Save official Apache Parquet table for Hugging Face LeRobot Hub
+        parquet_file = self.data_dir / f"episode_{ep_num:06d}.parquet"
+        save_parquet_episode(
+            parquet_path=parquet_file,
+            states=states_arr,
+            actions=actions_arr,
+            timestamps=timestamps_arr,
+            frame_indices=frame_indices,
+            episode_indices=episode_indices,
+            indices=indices,
+            task_indices=task_indices,
+        )
+
+        # 3. Save fast replay NPZ archive (<15ms)
         ep_file = self.data_dir / f"episode_{ep_num:06d}.npz"
         np.savez(
             ep_file,
@@ -295,14 +558,14 @@ class LeRobotDatasetRecorder:
                 "observation.images.extrinsic": extrinsic_arr,
                 "observation.images.topdown": topdown_arr,
                 "timestamp": timestamps_arr,
-                "episode_index": np.full(n_frames, ep_num, dtype=np.int64),
-                "frame_index": np.arange(n_frames, dtype=np.int64),
-                "index": np.arange(start_index, end_index, dtype=np.int64),
-                "task_index": np.zeros(n_frames, dtype=np.int64),
+                "episode_index": episode_indices,
+                "frame_index": frame_indices,
+                "index": indices,
+                "task_index": task_indices,
             }
         )
 
-        # 3. Update meta/episodes.jsonl
+        # 4. Update meta/episodes.jsonl
         episodes_path = self.meta_dir / "episodes.jsonl"
         with open(episodes_path, "a") as f:
             f.write(json.dumps({
@@ -313,19 +576,26 @@ class LeRobotDatasetRecorder:
                 "success": success,
             }) + "\n")
 
-        # 4. Update meta/info.json
+        # 5. Update meta/info.json
         info_path = self.meta_dir / "info.json"
         if info_path.exists():
             with open(info_path, "r") as f:
                 info = json.load(f)
-            info["total_episodes"] = ep_num + 1
+            total_ep = ep_num + 1
+            info["total_episodes"] = total_ep
             info["total_frames"] = end_index
-            info["total_videos"] = (ep_num + 1) * 4
+            info["total_videos"] = total_ep * 4
+            info["splits"] = {"train": f"0:{total_ep}"}
+            info["data_path"] = "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
+            info["video_path"] = "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4"
             with open(info_path, "w") as f:
                 json.dump(info, f, indent=2)
 
+        # 6. Update meta/stats.json
+        update_dataset_stats(self.meta_dir, self.data_dir)
+
         elapsed = time.time() - t0
-        print(f"\033[1;32m✓ Saved Episode {ep_num:04d} ({n_frames} frames, 4 modalities) in {elapsed:.2f}s.\033[0m\n")
+        print(f"\033[1;32m✓ Saved Episode {ep_num:04d} ({n_frames} frames -> 4x MP4 + Parquet + NPZ) in {elapsed:.2f}s.\033[0m\n")
 
         self.is_recording = False
         self.current_episode_idx += 1
