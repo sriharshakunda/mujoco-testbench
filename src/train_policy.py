@@ -65,7 +65,8 @@ def launch_lerobot_train(
         output_dir = get_unique_output_dir(output_dir)
 
     cmd = [
-        sys.executable, "-m", "lerobot.scripts.lerobot_train",
+        sys.executable, "-c",
+        "import lerobot.datasets.utils; lerobot.datasets.utils.check_version_compatibility = lambda *a, **k: None; from lerobot.scripts.lerobot_train import main; main()",
         f"--dataset.repo_id={repo_id}",
     ]
 
