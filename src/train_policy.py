@@ -193,8 +193,8 @@ def main():
                         help="Interval in steps at which intermediate checkpoints are saved (default: 20000)")
     parser.add_argument("--resume", action="store_true", default=False,
                         help="Resume training from an existing output directory checkpoint")
-    parser.add_argument("--num-workers", type=int, default=0,
-                        help="Number of DataLoader workers (default: 0 for process-safe PyAV depth decoding)")
+    parser.add_argument("--num-workers", type=int, default=4,
+                        help="Number of DataLoader worker processes for parallel video decoding (default: 4)")
     parser.add_argument("--dry-run", action="store_true", default=False,
                         help="Print command without executing")
     args = parser.parse_args()
