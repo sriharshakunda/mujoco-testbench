@@ -48,8 +48,12 @@ def upload_to_huggingface(data_dir: str, repo_id: str, private: bool = False, to
             delete_patterns=["*"],
             token=hf_token,
         )
+        try:
+            api.create_tag(repo_id, tag="v3.0", repo_type="dataset", token=hf_token)
+        except Exception:
+            pass
         print(f"\n\033[1;32m========================================================================")
-        print(f"  ✓ Successfully uploaded dataset to:")
+        print(f"  ✓ Successfully uploaded dataset with 'v3.0' codebase tag to:")
         print(f"    https://huggingface.co/datasets/{repo_id}")
         print(f"========================================================================\033[0m\n")
     except Exception as e:
