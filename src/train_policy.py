@@ -67,12 +67,12 @@ def launch_lerobot_train(
 
     cmd = [
         sys.executable, "-c",
-        "import lerobot.datasets.utils as u, lerobot.datasets.video_utils as vu, lerobot.datasets.dataset_metadata as dm, torch, numpy as np, av; u.check_version_compatibility = lambda *a, **k: None; _orig_ft = dm.LeRobotDatasetMetadata.features.fget; dm.LeRobotDatasetMetadata.features = property(lambda self: {k: v for k, v in _orig_ft(self).items() if 'depth' not in k}); _orig_dec = vu.decode_video_frames_pyav; vu.decode_video_frames_pyav = lambda vp, ts, tol, log_loaded_timestamps=False, return_uint8=False, is_depth=False: (torch.stack([(torch.from_numpy(f.to_ndarray(format='gray16le').astype(np.int32))) for f in av.open(str(vp)).decode(av.open(str(vp)).streams.video[0])][:len(ts)]) if is_depth else _orig_dec(vp, ts, tol, log_loaded_timestamps=log_loaded_timestamps, return_uint8=return_uint8, is_depth=is_depth)); from lerobot.scripts.lerobot_train import main; main()",
+        "import lerobot.datasets.utils as u, lerobot.datasets.video_utils as vu, lerobot.datasets.dataset_metadata as dm, lerobot.datasets.io_utils as io, torch, numpy as np, av; u.check_version_compatibility = lambda *a, **k: None; _orig_ft = dm.LeRobotDatasetMetadata.features.fget; dm.LeRobotDatasetMetadata.features = property(lambda self: {k: v for k, v in _orig_ft(self).items() if 'depth' not in k}); _orig_lnd = io.load_nested_dataset; io.load_nested_dataset = lambda pq_dir, features=None, episodes=None: _orig_lnd(pq_dir, features=None, episodes=episodes); _orig_dec = vu.decode_video_frames_pyav; vu.decode_video_frames_pyav = lambda vp, ts, tol, log_loaded_timestamps=False, return_uint8=False, is_depth=False: (torch.stack([(torch.from_numpy(f.to_ndarray(format='gray16le').astype(np.int32))) for f in av.open(str(vp)).decode(av.open(str(vp)).streams.video[0])][:len(ts)]) if is_depth else _orig_dec(vp, ts, tol, log_loaded_timestamps=log_loaded_timestamps, return_uint8=return_uint8, is_depth=is_depth)); from lerobot.scripts.lerobot_train import main; main()",
         f"--dataset.repo_id={repo_id}",
     ]
 
-    # Only append --dataset.root if directory exists locally
-    if dataset_root and dataset_root.lower() not in ["none", "null", ""] and os.path.exists(dataset_root):
+    # Append --dataset.root if dataset_root is provided
+    if dataset_root and dataset_root.lower() not in ["none", "null", ""]:
         cmd.append(f"--dataset.root={dataset_root}")
 
     cmd.extend([

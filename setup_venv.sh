@@ -36,7 +36,7 @@ echo "[VENV] Upgrading pip, setuptools, and wheel..."
 
 # 3. Install Dependencies
 echo "[VENV] Installing PyTorch, LeRobot (from HuggingFace official GitHub repo), transformers, datasets, accelerate, num2words, and project dependencies (this may take 2-3 mins)..."
-"$VENV_PYTHON" -m pip install torch torchvision numpy datasets draccus einops deepdiff transformers "diffusers>=0.30.0" "huggingface-hub>=0.25.0" accelerate num2words "av==12.3.0" pandas pyarrow imageio opencv-python matplotlib scipy mujoco
+"$VENV_PYTHON" -m pip install torch torchvision numpy "datasets<4.0.0" draccus einops deepdiff transformers "diffusers>=0.30.0" "huggingface-hub>=0.25.0" accelerate num2words "av==12.3.0" pandas pyarrow imageio opencv-python matplotlib scipy mujoco
 "$VENV_PYTHON" -m pip install --upgrade "git+https://github.com/huggingface/lerobot.git"
 
 echo "===================================================================="

@@ -52,6 +52,7 @@ def evaluate_lerobot_policy(
     video_dir: str = "eval_videos",
     device: Optional[str] = None,
     num_inference_steps: Optional[int] = 10,
+    task: str = "pick up the red cube and place it into the bin",
 ):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -60,6 +61,7 @@ def evaluate_lerobot_policy(
     print("      Hugging Face LeRobot Closed-Loop Policy Evaluation Benchmark")
     print("=" * 76)
     print(f"  Checkpoint Path   : \033[1;34m{checkpoint_path}\033[0m")
+    print(f"  Task Instruction  : \033[1;35m'{task}'\033[0m")
     print(f"  Evaluation Device : \033[1;32m{device.upper()}\033[0m")
     print(f"  Test Episodes     : \033[1;36m{num_episodes}\033[0m")
     print(f"  Max Steps/Episode : \033[1;36m{max_steps} frames\033[0m")
@@ -187,7 +189,7 @@ def evaluate_lerobot_policy(
                     "observation.images.wrist_depth": torch.from_numpy(w_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0),
                     "observation.images.extrinsic": torch.from_numpy(s_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0),
                     "observation.images.topdown": torch.from_numpy(t_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0),
-                    "task": "pick up the red cube and place it into the bin",
+                    "task": task,
                 }
 
                 # Adapt camera keys for SmolVLA if needed
@@ -284,6 +286,8 @@ def main():
                         help="Device to run policy evaluation on ('cuda' or 'cpu')")
     parser.add_argument("--num-inference-steps", type=int, default=5,
                         help="DDPM denoising steps per action chunk during evaluation for Diffusion Policy (default: 5)")
+    parser.add_argument("--task", type=str, default="pick up the red cube and place it into the bin",
+                        help="Language task instruction for VLA policy evaluation")
     args = parser.parse_args()
 
     evaluate_lerobot_policy(
@@ -295,6 +299,7 @@ def main():
         video_dir=args.video_dir,
         device=args.device,
         num_inference_steps=args.num_inference_steps,
+        task=args.task,
     )
 
 
