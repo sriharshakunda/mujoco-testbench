@@ -134,7 +134,8 @@ Train policies using official **Hugging Face LeRobot** (`lerobot-train` CLI inte
     --dataset-root data/my_auto_dataset \
     --policy-type smolvla \
     --pretrained-path lerobot/smolvla_base \
-    --steps 20000 \
+    --steps 30000 \
+    --save-freq 5000 \
     --batch-size 16
   ```
 - **Venv Helper Command**:
@@ -144,7 +145,8 @@ Train policies using official **Hugging Face LeRobot** (`lerobot-train` CLI inte
     --dataset-root data/my_auto_dataset \
     --policy-type smolvla \
     --pretrained-path lerobot/smolvla_base \
-    --steps 20000 \
+    --steps 30000 \
+    --save-freq 5000 \
     --batch-size 16
   ```
 - **Venv Native CLI Command**:
@@ -153,7 +155,8 @@ Train policies using official **Hugging Face LeRobot** (`lerobot-train` CLI inte
     --dataset.repo_id=local/dataset \
     --dataset.root=data/my_auto_dataset \
     --policy.type=smolvla \
-    --steps=20000 \
+    --steps=30000 \
+    --save_freq=5000 \
     --batch_size=16 \
     --output_dir=outputs/train/smolvla_piper \
     --policy.push_to_hub=false
@@ -169,7 +172,8 @@ Train policies using official **Hugging Face LeRobot** (`lerobot-train` CLI inte
     --repo-id local/dataset \
     --dataset-root data/my_auto_dataset \
     --policy-type diffusion \
-    --steps 20000 \
+    --steps 50000 \
+    --save-freq 5000 \
     --batch-size 16
   ```
 - **Venv Helper Command**:
@@ -178,7 +182,8 @@ Train policies using official **Hugging Face LeRobot** (`lerobot-train` CLI inte
     --repo-id local/dataset \
     --dataset-root data/my_auto_dataset \
     --policy-type diffusion \
-    --steps 20000 \
+    --steps 50000 \
+    --save-freq 5000 \
     --batch-size 16
   ```
 - **Venv Native CLI Command**:
@@ -187,7 +192,8 @@ Train policies using official **Hugging Face LeRobot** (`lerobot-train` CLI inte
     --dataset.repo_id=local/dataset \
     --dataset.root=data/my_auto_dataset \
     --policy.type=diffusion \
-    --steps=20000 \
+    --steps=50000 \
+    --save_freq=5000 \
     --batch_size=16 \
     --output_dir=outputs/train/diffusion_piper \
     --policy.push_to_hub=false
@@ -204,6 +210,7 @@ Train policies using official **Hugging Face LeRobot** (`lerobot-train` CLI inte
     --dataset-root data/my_auto_dataset \
     --policy-type act \
     --steps 20000 \
+    --save-freq 2000 \
     --batch-size 16
   ```
 - **Venv Helper Command**:
@@ -213,6 +220,7 @@ Train policies using official **Hugging Face LeRobot** (`lerobot-train` CLI inte
     --dataset-root data/my_auto_dataset \
     --policy-type act \
     --steps 20000 \
+    --save-freq 2000 \
     --batch-size 16
   ```
 - **Venv Native CLI Command**:
@@ -222,6 +230,7 @@ Train policies using official **Hugging Face LeRobot** (`lerobot-train` CLI inte
     --dataset.root=data/my_auto_dataset \
     --policy.type=act \
     --steps=20000 \
+    --save_freq=2000 \
     --batch_size=16 \
     --output_dir=outputs/train/act_piper \
     --policy.push_to_hub=false
@@ -229,17 +238,17 @@ Train policies using official **Hugging Face LeRobot** (`lerobot-train` CLI inte
 
 ---
 
-### 4. Resuming & Saving Intermediate Checkpoints
+### 4. Checkpoint Save Frequency (`save_freq`) & Resuming
 
-You can set `--save_freq` (or `--save-freq`) to save intermediate checkpoints and `--resume=true` to continue training from where you left off:
+Use `--save_freq` (or `--save-freq` in helper scripts) to control how often intermediate checkpoints are saved to disk during training:
 
-- **Save Intermediate Checkpoints Every 500 Steps**:
+- **Save Checkpoints Every 500 Steps (Short Test / Small Run)**:
   ```bash
   lerobot-train \
     --dataset.repo_id=local/dataset \
     --dataset.root=data/my_auto_dataset \
     --policy.type=smolvla \
-    --steps=2000 \
+    --steps=5000 \
     --save_freq=500 \
     --batch_size=16 \
     --output_dir=outputs/train/smolvla_piper \
