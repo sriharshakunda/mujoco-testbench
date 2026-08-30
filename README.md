@@ -117,6 +117,32 @@ The autonomous pick-and-place agent is driven by closed-loop differential Invers
 
 ---
 
+### Uploading Recorded Datasets to Hugging Face Hub
+
+Upload recorded LeRobot datasets directly to Hugging Face Hub so they can be streamed for cloud GPU training or shared with your team:
+
+1. **Set your Hugging Face Access Token** (or run `huggingface-cli login`):
+   ```bash
+   export HF_TOKEN="hf_YourHuggingFaceTokenHere"
+   ```
+
+2. **Upload Dataset (Public Repo)**:
+   ```bash
+   python -m src.upload_dataset \
+     --data-dir data/redcube_picknplace \
+     --repo-id <YOUR_HF_USERNAME>/redcube_picknplace
+   ```
+
+3. **Upload Dataset (Private Repo)**:
+   ```bash
+   python -m src.upload_dataset \
+     --data-dir data/redcube_picknplace \
+     --repo-id <YOUR_HF_USERNAME>/redcube_picknplace \
+     --private
+   ```
+
+---
+
 ## 3. Policy Training
 
 Train policies using official **Hugging Face LeRobot** (`lerobot-train` CLI integration or project helper scripts).
