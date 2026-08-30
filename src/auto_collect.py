@@ -142,16 +142,16 @@ def auto_collect_dataset(
     agent = AutoPickAndPlaceAgent(env)
 
     # Initialize 2 HD Cameras (Wrist Gripper View + Side Scene View)
-    wrist_cam = WristCamera(env.model, "wrist_rgb", height=480, width=640, exposure=1.0)
-    scene_cam = WristCamera(env.model, "scene_cam", height=480, width=640, exposure=1.0)
+    wrist_cam = WristCamera(env.model, "wrist_rgb", height=720, width=1280, exposure=1.0)
+    scene_cam = WristCamera(env.model, "scene_cam", height=720, width=1280, exposure=1.0)
 
-    # Initialize LeRobot Dataset Recorder (480x640 HD Resolution)
+    # Initialize LeRobot Dataset Recorder (720x1280 HD Resolution)
     recorder = LeRobotDatasetRecorder(
         dataset_dir=data_dir,
         fps=fps,
         task_description=task_description,
-        image_height=480,
-        image_width=640,
+        image_height=720,
+        image_width=1280,
     )
 
     viewer = None

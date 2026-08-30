@@ -9,6 +9,7 @@ Hugging Face Hub syncing.
 import os
 from pathlib import Path
 from typing import Optional
+from contextlib import contextmanager
 import numpy as np
 from PIL import Image
 
@@ -17,6 +18,24 @@ try:
     av.logging.set_level(av.logging.ERROR)
 except Exception:
     pass
+
+@contextmanager
+def silence_stderr():
+    """Redirect C-level stderr (fd 2) to /dev/null to silence libx264/FFmpeg encoding output."""
+    try:
+        null_fd = os.open(os.devnull, os.O_WRONLY)
+        old_stderr = os.dup(2)
+        os.dup2(null_fd, 2)
+        os.close(null_fd)
+        yield
+    except Exception:
+        yield
+    finally:
+        try:
+            os.dup2(old_stderr, 2)
+            os.close(old_stderr)
+        except Exception:
+            pass
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.configs.video import RGBEncoderConfig
@@ -127,7 +146,8 @@ class LeRobotDatasetRecorder:
         if not self.is_recording:
             return None
 
-        self.dataset.save_episode()
+        with silence_stderr():
+            self.dataset.save_episode()
         self.is_recording = False
         print("[LeRobot Dataset] Episode saved and chunked to disk natively.")
         return str(self.dataset_dir)
@@ -147,5 +167,6 @@ class LeRobotDatasetRecorder:
     def finalize(self) -> None:
         """Finalize dataset chunking and write metadata footers (LeRobot v3.0 standard)."""
         if hasattr(self.dataset, "finalize"):
-            self.dataset.finalize()
+            with silence_stderr():
+                self.dataset.finalize()
             print("[LeRobot Dataset] Dataset finalized with valid metadata footers.")
