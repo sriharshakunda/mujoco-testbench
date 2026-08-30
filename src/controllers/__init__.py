@@ -8,10 +8,7 @@ from src.controllers.ik_controller import (
     quat2mat,
 )
 
-try:
-    from src.controllers.pinocchio_controller import PinocchioIKController
-except ImportError:
-    PinocchioIKController = None
+PinocchioIKController = None
 
 __all__ = [
     "DifferentialIKController",

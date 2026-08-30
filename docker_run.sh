@@ -62,6 +62,15 @@ for arg in "$@"; do
         --convert)
             MODE="convert"
             ;;
+        --hil-serl)
+            MODE="hil_serl"
+            ;;
+        --reward-classifier)
+            MODE="reward_classifier"
+            ;;
+        --dagger)
+            MODE="dagger"
+            ;;
         *)
             ARGS+=("$arg")
             ;;
@@ -83,6 +92,15 @@ case "$MODE" in
         ;;
     lerobot_eval)
         CMD=(lerobot-eval)
+        ;;
+    hil_serl)
+        CMD=(python -m lerobot.rl.gym_manipulator)
+        ;;
+    reward_classifier)
+        CMD=(python -m src.reward_classifier)
+        ;;
+    dagger)
+        CMD=(lerobot-rollout --strategy.type=dagger)
         ;;
     viz)
         CMD=(python -m src.visualize_dataset)

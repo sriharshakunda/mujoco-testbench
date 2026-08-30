@@ -9,11 +9,7 @@ from typing import Optional, Tuple
 import numpy as np
 import mujoco
 
-try:
-    from src.controllers.pinocchio_controller import PinocchioIKController
-    PINOCCHIO_AVAILABLE = True
-except Exception:
-    PINOCCHIO_AVAILABLE = False
+PINOCCHIO_AVAILABLE = False
 
 
 def mat2quat(rot_mat: np.ndarray) -> np.ndarray:

@@ -14,7 +14,7 @@ import numpy as np
 try:
     import pinocchio as pin
     PINOCCHIO_AVAILABLE = True
-except (ImportError, ModuleNotFoundError):
+except BaseException:
     pin = None
     PINOCCHIO_AVAILABLE = False
 

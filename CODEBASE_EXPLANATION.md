@@ -12,22 +12,14 @@ mujoco-testbench/
 │   └── piper.xml                   # MuJoCo robot model (MJCF format)
 ├── src/
 │   ├── environment/
-│   │   ├── env.py                  # MuJoCo environment wrapper
+│   │   ├── env.py                  # MuJoCo environment wrapper & make_env()
 │   │   └── tasks.py                # Task definitions (reaching, etc.)
-│   ├── controllers/
-│   │   ├── ik_controller.py        # Inverse kinematics solver
-│   │   └── pinocchio_controller.py # Pinocchio-based kinematics
-│   ├── spacemouse.py               # SpaceMouse input device handling
-│   ├── camera.py                   # Wrist camera interface
-│   ├── lerobot_dataset.py          # LeRobot dataset utilities
-│   ├── teleop_tui.py               # Terminal UI for teleoperation
-│   └── utils/
-│       ├── config.py               # Configuration management
-│       └── logging_utils.py        # Logging utilities
+│   ├── auto_collect.py             # Autonomous LeRobot v3.0 data collection
+│   ├── train_policy.py             # Official lerobot-train policy launcher
+│   ├── upload_dataset.py           # Hugging Face Hub dataset uploader
+│   ├── lerobot_dataset.py          # LeRobot v3.0 dataset recorder wrapper
+│   └── teleop_tui.py               # Terminal UI for teleoperation
 ├── scripts/
-│   ├── train_il.py                 # Imitation learning training
-│   ├── train_rl.py                 # Reinforcement learning training
-│   ├── evaluate_policy.py          # Policy evaluation
 │   └── main.py                     # Main orchestration script
 └── tests/                          # Unit tests for all modules
 ```
@@ -420,6 +412,17 @@ Viewer / Camera / LeRobot Dataset
 3. **Check camera views**: `python snapshot.py` to see all camera angles
 4. **Collect data**: Use app.py to record demonstrations
 5. **Train model**: Use `scripts/train_il.py` to learn from data
+
+---
+
+## ⚡ HIL-SERL Reinforcement Learning Pipeline
+
+### **src/reward_classifier.py** - Vision Reward Classifier
+- **Purpose**: Trains a binary ResNet success detector from demonstration datasets (last 10% frames = success, first 20% frames = failure).
+- **Usage**: `python -m src.reward_classifier --dataset-dir data/my_auto_dataset --output-dir outputs/reward_classifier`
+
+### **configs/hilserl_piper.json** - HIL-SERL Configuration
+- **Purpose**: Defines `HILSerlRobotEnvConfig` settings, workspace end-effector safety box bounds ($X \in [0.15, 0.55]$, $Y \in [-0.30, 0.30]$, $Z \in [0.12, 0.45]$), control step sizes, and intervention action processors.
 
 ---
 

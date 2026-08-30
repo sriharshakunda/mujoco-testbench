@@ -12,7 +12,14 @@ from typing import Optional
 import numpy as np
 from PIL import Image
 
+try:
+    import av
+    av.logging.set_level(av.logging.ERROR)
+except Exception:
+    pass
+
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.configs.video import RGBEncoderConfig
 
 class LeRobotDatasetRecorder:
     """
@@ -24,8 +31,8 @@ class LeRobotDatasetRecorder:
         dataset_dir: str = "data/lerobot_dataset",
         fps: int = 30,
         task_description: str = "pick up the red cube and place it into the bin",
-        image_height: int = 240,
-        image_width: int = 320,
+        image_height: int = 480,
+        image_width: int = 640,
         repo_id: str = "local/dataset"
     ):
         self.dataset_dir = Path(dataset_dir)
@@ -55,22 +62,28 @@ class LeRobotDatasetRecorder:
                 "dtype": "video",
                 "shape": (3, self.image_height, self.image_width),
                 "names": ["channels", "height", "width"]
-            },
-            "observation.images.topdown": {
-                "dtype": "video",
-                "shape": (3, self.image_height, self.image_width),
-                "names": ["channels", "height", "width"]
             }
         }
 
-        if self.dataset_dir.exists() and (self.dataset_dir / "meta" / "info.json").exists():
-            self.dataset = LeRobotDataset(self.repo_id, root=self.dataset_dir)
+        has_parquet = any((self.dataset_dir / "data").glob("**/*.parquet")) if (self.dataset_dir / "data").exists() else False
+
+        if self.dataset_dir.exists() and (self.dataset_dir / "meta" / "info.json").exists() and has_parquet:
+            self.dataset = LeRobotDataset.resume(
+                repo_id=self.repo_id,
+                root=self.dataset_dir,
+                rgb_encoder=RGBEncoderConfig(vcodec="h264"),
+            )
         else:
+            if self.dataset_dir.exists():
+                import shutil
+                shutil.rmtree(self.dataset_dir)
+
             self.dataset = LeRobotDataset.create(
                 repo_id=self.repo_id,
                 fps=self.fps,
                 root=self.dataset_dir,
-                features=self.features, vcodec="h264",
+                features=self.features,
+                rgb_encoder=RGBEncoderConfig(vcodec="h264"),
             )
 
         self.is_recording = False
@@ -87,11 +100,11 @@ class LeRobotDatasetRecorder:
         state: np.ndarray,
         action: np.ndarray,
         wrist_rgb: np.ndarray,
-        wrist_depth: np.ndarray,
-        extrinsic_rgb: np.ndarray,
-        topdown_rgb: np.ndarray,
+        wrist_depth: Optional[np.ndarray] = None,
+        extrinsic_rgb: Optional[np.ndarray] = None,
+        topdown_rgb: Optional[np.ndarray] = None,
     ) -> None:
-        """Record a single synchronized timestep with all modalities."""
+        """Record a single synchronized timestep with 2 camera modalities (wrist + extrinsic)."""
         if not self.is_recording:
             return
 
@@ -99,8 +112,7 @@ class LeRobotDatasetRecorder:
             "observation.state": np.array(state, dtype=np.float32),
             "action": np.array(action, dtype=np.float32),
             "observation.images.wrist": Image.fromarray(wrist_rgb),
-            "observation.images.extrinsic": Image.fromarray(extrinsic_rgb),
-            "observation.images.topdown": Image.fromarray(topdown_rgb),
+            "observation.images.extrinsic": Image.fromarray(extrinsic_rgb if extrinsic_rgb is not None else wrist_rgb),
             "task": self.current_task
         }
 
@@ -127,3 +139,13 @@ class LeRobotDatasetRecorder:
         self.dataset.clear_episode_buffer()
         self.is_recording = False
         print("[LeRobot Dataset] Episode discarded.")
+
+    @property
+    def num_episodes(self) -> int:
+        return getattr(self.dataset, "num_episodes", 0)
+
+    def finalize(self) -> None:
+        """Finalize dataset chunking and write metadata footers (LeRobot v3.0 standard)."""
+        if hasattr(self.dataset, "finalize"):
+            self.dataset.finalize()
+            print("[LeRobot Dataset] Dataset finalized with valid metadata footers.")

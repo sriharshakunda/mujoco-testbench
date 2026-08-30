@@ -18,6 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglx-mesa0 \
     libglfw3 \
     libosmesa6 \
+    libegl1-mesa-dev \
+    libgles2-mesa-dev \
     python3-tk \
     ffmpeg \
     && apt-get clean \

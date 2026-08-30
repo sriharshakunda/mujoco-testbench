@@ -1,19 +1,15 @@
 """
-Official Hugging Face LeRobot Policy Evaluation Benchmark for Agilex Piper Arm.
---------------------------------------------------------------------------------
-Evaluates trained LeRobot policies (ACT, Diffusion Policy) in closed-loop MuJoCo
-simulation across randomized test episodes.
-
-Features:
-  - Loads official LeRobot pretrained models (`ACTPolicy.from_pretrained`) or Hub repositories
-  - Multi-camera visual rendering (Wrist RGB, Depth, Scene, Topdown)
-  - Closed-loop action chunking execution via `policy.select_action(observation)`
-  - Automatic goal verification (cube placed inside blue target bin)
-  - Rollout video saving and live visualization
+Interactive Policy Evaluator with Real-Time MuJoCo 3D Visualizer & Video Recording.
+----------------------------------------------------------------------------------
+Evaluates trained LeRobot policies (SmolVLA, Diffusion, ACT) in closed-loop MuJoCo simulation
+with live 3D window visualization and optional MP4 video export.
 
 Usage:
-  ./docker_run.sh --eval --checkpoint checkpoints/act_lerobot/best_model --num-episodes 10
-  ./docker_run.sh --eval --checkpoint checkpoints/act_lerobot/best_model --headless --save-video
+    # Live Interactive 3D Viewer:
+    python -m src.evaluate_policy --checkpoint outputs/train/smolvla_piper/checkpoints/last/pretrained_model --num-episodes 5
+
+    # Headless Mode with Video Recording:
+    python -m src.evaluate_policy --checkpoint outputs/train/smolvla_piper/checkpoints/last/pretrained_model --num-episodes 5 --headless --save-video
 """
 
 import os
@@ -21,285 +17,223 @@ import sys
 import time
 import argparse
 from pathlib import Path
-from typing import Dict, Optional, Tuple
 import numpy as np
 import torch
+
+try:
+    import av
+    av.logging.set_level(av.logging.ERROR)
+except Exception:
+    pass
+
 import mujoco
-
-from src.environment.env import PiperEnv, N_ARM_JOINTS, N_GRIPPER
-from src.camera import WristCamera
-
-from lerobot.policies.act.modeling_act import ACTPolicy
-from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
-from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
-
 try:
     import mujoco.viewer
     VIEWER_AVAILABLE = True
 except Exception:
     VIEWER_AVAILABLE = False
 
+from src.environment.env import PiperEnv
+from lerobot.policies.factory import make_policy
+from lerobot.configs.policies import PreTrainedConfig
+from lerobot.utils.io_utils import write_video
 
-TARGET_BIN_POS = np.array([0.35, 0.32, 0.15])
+
+def resolve_checkpoint_path(path_str: str) -> Path:
+    """Resolve checkpoint directory, automatically appending pretrained_model if needed."""
+    p = Path(path_str).resolve()
+    if (p / "pretrained_model").exists():
+        return p / "pretrained_model"
+    if p.is_symlink() or p.is_dir():
+        target = p.resolve()
+        if (target / "pretrained_model").exists():
+            return target / "pretrained_model"
+    return p
 
 
-def evaluate_lerobot_policy(
-    checkpoint_path: str = "checkpoints/act_lerobot/best_model",
-    num_episodes: int = 10,
-    max_steps: int = 350,
+def evaluate_policy(
+    checkpoint_path: str,
+    num_episodes: int = 5,
+    max_steps: int = 300,
     headless: bool = False,
     save_video: bool = False,
-    video_dir: str = "eval_videos",
-    device: Optional[str] = None,
-    num_inference_steps: Optional[int] = 10,
-    task: str = "pick up the red cube and place it into the bin",
+    video_dir: str = "eval_videos"
 ):
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+    ckpt_dir = resolve_checkpoint_path(checkpoint_path)
+    if not (ckpt_dir / "config.json").exists():
+        print(f"\033[1;31mError: Could not find config.json in '{ckpt_dir}'.\033[0m")
+        return
 
-    print("\n" + "=" * 76)
-    print("      Hugging Face LeRobot Closed-Loop Policy Evaluation Benchmark")
-    print("=" * 76)
-    print(f"  Checkpoint Path   : \033[1;34m{checkpoint_path}\033[0m")
-    print(f"  Task Instruction  : \033[1;35m'{task}'\033[0m")
-    print(f"  Evaluation Device : \033[1;32m{device.upper()}\033[0m")
-    print(f"  Test Episodes     : \033[1;36m{num_episodes}\033[0m")
-    print(f"  Max Steps/Episode : \033[1;36m{max_steps} frames\033[0m")
-    print(f"  Headless Mode     : \033[1;33m{headless}\033[0m")
-    print("=" * 76 + "\n")
+    print(f"\n\033[1;34m========================================================================\033[0m")
+    print(f"\033[1;34m         Agilex Piper Interactive LeRobot Policy Evaluator             \033[0m")
+    print(f"\033[1;34m========================================================================\033[0m")
+    print(f"  Checkpoint Path : {ckpt_dir}")
+    print(f"  Target Episodes : {num_episodes}")
+    print(f"  Max Steps/Ep    : {max_steps}")
+    print(f"  Headless Mode   : {headless}")
+    print(f"  Save Videos     : {save_video}")
+    print(f"\033[1;34m========================================================================\033[0m\n")
 
-    # 1. Load Pretrained LeRobot Policy & Normalization Processors
-    try:
-        policy = ACTPolicy.from_pretrained(checkpoint_path)
-    except Exception:
-        try:
-            policy = DiffusionPolicy.from_pretrained(checkpoint_path)
-        except Exception:
-            try:
-                policy = SmolVLAPolicy.from_pretrained(checkpoint_path)
-            except Exception as e:
-                raise RuntimeError(f"Failed to load LeRobot policy from {checkpoint_path}: {e}")
-
-    policy.to(device)
+    # Load policy and pre/post processors
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[Policy Evaluator] Loading pretrained policy model onto {device}...")
+    policy_cfg = PreTrainedConfig.from_pretrained(str(ckpt_dir))
+    policy_cfg.device = str(device)
+    
+    from lerobot.policies.factory import get_policy_class, make_pre_post_processors
+    policy_cls = get_policy_class(policy_cfg.type)
+    policy = policy_cls.from_pretrained(str(ckpt_dir))
     policy.eval()
-    print(f"✓ Loaded LeRobot {policy.__class__.__name__} from {checkpoint_path}\n")
+    policy.to(device)
 
-    if device == "cuda":
-        torch.backends.cudnn.benchmark = True
+    preprocessor, postprocessor = make_pre_post_processors(
+        policy_cfg,
+        pretrained_path=str(ckpt_dir),
+        preprocessor_overrides={"device_processor": {"device": str(device)}},
+        postprocessor_overrides={"device_processor": {"device": str(device)}},
+    )
+    print("✓ Policy model and pre/post processors successfully loaded!")
 
-    # Fast evaluation optimization for Diffusion Policy (reduces 100 DDPM iterations to num_inference_steps)
-    if isinstance(policy, DiffusionPolicy):
-        infer_steps = num_inference_steps if num_inference_steps is not None else 5
-        policy.num_inference_steps = infer_steps
-        print(f"⚡ Optimized Diffusion Policy inference: reduced DDPM denoising steps to {infer_steps} for 30 FPS real-time evaluation")
-
-    # Load preprocessor & postprocessor (handles normalization / unnormalization)
-    from lerobot.policies.factory import make_pre_post_processors
-    try:
-        preprocessor, postprocessor = make_pre_post_processors(policy.config, pretrained_path=checkpoint_path)
-        print("✓ Loaded policy preprocessor & postprocessor from checkpoint.")
-    except Exception as e:
-        print(f"Note: Checkpoint did not contain preprocessors ({e}). Loading fallback stats from data/red_block_dataset...")
-        import json
-        fallback_stats_path = Path("data/red_block_dataset/meta/stats.json")
-        if not fallback_stats_path.exists():
-            fallback_stats_path = Path("data/lerobot_dataset/meta/stats.json")
-        
-        dataset_stats = None
-        if fallback_stats_path.exists():
-            with open(fallback_stats_path, "r") as f:
-                dataset_stats = json.load(f)
-        
-        preprocessor, postprocessor = make_pre_post_processors(
-            policy.config,
-            dataset_stats=dataset_stats,
-            preprocessor_overrides={
-                "device_processor": {"device": device},
-                "normalizer_processor": {"norm_map": policy.config.normalization_mapping},
-            },
-            postprocessor_overrides={
-                "unnormalizer_processor": {"norm_map": policy.config.normalization_mapping},
-            },
-        )
-        print("✓ Configured fallback preprocessor & postprocessor pipelines.")
-
-    # 2. Setup Environment & Cameras
-    env = PiperEnv()
-    cube_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_BODY, "cube_red")
-
-    wrist_cam = WristCamera(env.model, "wrist_rgb", exposure=1.0)
-    scene_cam = WristCamera(env.model, "scene_cam", exposure=1.0)
-    topdown_cam = WristCamera(env.model, "topdown_cam", exposure=1.0)
+    # Initialize environment
+    from src.environment.env import PiperGymEnv
+    render_mode = "rgb_array" if headless else "human"
+    env = PiperGymEnv(render_mode=render_mode)
 
     viewer = None
     if not headless and VIEWER_AVAILABLE:
-        try:
-            viewer = mujoco.viewer.launch_passive(env.model, env.data)
-            viewer.cam.distance = 1.15
-            viewer.cam.azimuth = 140
-            viewer.cam.elevation = -22
-        except Exception as e:
-            print(f"Note: Running headless (viewer error: {e})")
-            viewer = None
-
-    if save_video:
-        import imageio
-        v_path = Path(video_dir)
-        v_path.mkdir(parents=True, exist_ok=True)
+        print("[Visualizer] Opening interactive 3D GLFW MuJoCo viewer window...")
+        viewer = mujoco.viewer.launch_passive(env.env.model, env.env.data)
 
     success_count = 0
-    substeps = 5  # 5 * 2ms = 10ms physics step per 30fps frame
+    video_out_dir = Path(video_dir)
+    if save_video:
+        video_out_dir.mkdir(parents=True, exist_ok=True)
 
-    try:
-        for ep in range(1, num_episodes + 1):
-            print(f"\n\033[1;34m--- [Episode {ep:02d}/{num_episodes:02d}] -------------------------------------------\033[0m")
-            env.reset(randomize_cubes=True)
-            # Reset policy internal state buffer (action queues, CVAE sampling)
-            policy.reset()
+    task_description = getattr(env, "task_description", "pick up the red block and place in blue bin")
 
-            # Set arm ready posture
-            env.data.qpos[:6] = np.array([0.20, -2.00, -0.60, 0.00, 1.00, 0.00])
-            env.data.qvel[:] = 0.0
-            env.data.ctrl[:6] = env.data.qpos[:6]
-            env.data.ctrl[6] = 0.04
-            mujoco.mj_forward(env.model, env.data)
+    for ep in range(num_episodes):
+        print(f"\n--- Episode {ep+1}/{num_episodes} ---")
+        res = env.reset()
+        obs_raw = res[0] if isinstance(res, tuple) else res
+        policy.reset()
 
-            step_idx = 0
-            ep_frames = []
-            ep_success = False
+        frames = []
+        episode_reward = 0.0
+        success = False
 
-            ctrl_min = env.model.actuator_ctrlrange[:, 0]
-            ctrl_max = env.model.actuator_ctrlrange[:, 1]
+        for step_idx in range(max_steps):
+            # Render visual frame for viewer or video recording
+            if viewer is not None and viewer.is_running():
+                viewer.sync()
+                time.sleep(0.02)
+            
+            if save_video:
+                rgb_frame = env.render()
+                if rgb_frame is not None:
+                    frames.append(rgb_frame)
 
-            while step_idx < max_steps:
-                # 1. Capture observation state & images
-                raw_state = np.concatenate([env.data.qpos[:N_ARM_JOINTS], [env.data.qpos[N_ARM_JOINTS]]])
-                w_rgb, w_dep = wrist_cam.get_rgb_and_depth(env.data)
-                s_rgb = scene_cam.get_rgb(env.data)
-                t_rgb = topdown_cam.get_rgb(env.data)
+            # Helper tensor formatters
+            def _fmt_state(arr):
+                if arr is None:
+                    return None
+                t = torch.as_tensor(arr, dtype=torch.float32, device=device)
+                return t.unsqueeze(0) if t.ndim == 1 else t
 
-                if save_video:
-                    ep_frames.append(s_rgb)
+            def _fmt_img(arr):
+                if arr is None:
+                    return None
+                t = torch.as_tensor(arr, device=device)
+                if t.ndim == 3:  # (H, W, C) -> (1, C, H, W)
+                    t = t.permute(2, 0, 1).unsqueeze(0)
+                elif t.ndim == 4 and t.shape[-1] == 3:  # (B, H, W, C) -> (B, C, H, W)
+                    t = t.permute(0, 3, 1, 2)
+                if t.dtype == torch.uint8:
+                    t = t.float() / 255.0
+                return t
 
-                # Format observations expected by LeRobot policy
-                # Note: LeRobot processors expect raw unbatched observations (1D tensors / (C, H, W) images)
-                obs = {
-                    "observation.state": torch.from_numpy(raw_state.astype(np.float32)),
-                    "observation.images.wrist": torch.from_numpy(w_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0),
-                    "observation.images.wrist_depth": torch.from_numpy(w_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0),
-                    "observation.images.extrinsic": torch.from_numpy(s_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0),
-                    "observation.images.topdown": torch.from_numpy(t_rgb.astype(np.float32).transpose(2, 0, 1) / 255.0),
-                    "task": task,
+            # Format raw observation dict for preprocessor
+            if isinstance(obs_raw, dict):
+                st = obs_raw.get("observation.state", obs_raw.get("agent_pos", obs_raw.get("joint_positions", None)))
+                wr = obs_raw.get("observation.images.wrist", obs_raw.get("wrist", obs_raw.get("pixels", {}).get("wrist", None)))
+                ex = obs_raw.get("observation.images.extrinsic", obs_raw.get("extrinsic", obs_raw.get("pixels", {}).get("extrinsic", None)))
+
+                obs_formatted = {
+                    "observation.state": _fmt_state(st),
+                    "task": task_description,
+                }
+                if wr is not None:
+                    obs_formatted["observation.images.wrist"] = _fmt_img(wr)
+                if ex is not None:
+                    obs_formatted["observation.images.extrinsic"] = _fmt_img(ex)
+            else:
+                obs_formatted = {
+                    "observation.state": _fmt_state(obs_raw),
+                    "task": task_description,
                 }
 
-                # Adapt camera keys for SmolVLA if needed
-                if hasattr(policy.config, "image_features"):
-                    policy_cams = list(policy.config.image_features.keys())
-                    if "observation.images.camera1" in policy_cams:
-                        obs["observation.images.camera1"] = obs["observation.images.wrist"]
-                        obs["observation.images.camera2"] = obs["observation.images.extrinsic"]
-                        obs["observation.images.camera3"] = obs["observation.images.topdown"]
+            with torch.no_grad():
+                obs_proc = preprocessor(obs_formatted)
+                action_tensor = policy.select_action(obs_proc)
+                if postprocessor is not None:
+                    action_tensor = postprocessor(action_tensor)
+                action = action_tensor.squeeze(0).cpu().numpy()
 
-                # Process observation through normalizer & device placement
-                processed_obs = preprocessor(obs)
-
-                # 2. Select next action from LeRobot policy
-                with torch.no_grad():
-                    if device == "cuda":
-                        with torch.cuda.amp.autocast():
-                            action_tensor = policy.select_action(processed_obs)  # (1, 7)
-                    else:
-                        action_tensor = policy.select_action(processed_obs)  # (1, 7)
-                    unnormalized_action = postprocessor(action_tensor)
-                    action_cmd = unnormalized_action.squeeze(0).cpu().numpy()
-
-                # 3. Apply action to MuJoCo robot
-                env.data.ctrl[:7] = np.clip(action_cmd[:7], ctrl_min, ctrl_max)
-                for _ in range(substeps):
-                    mujoco.mj_step(env.model, env.data)
-
-                if viewer is not None and step_idx % 2 == 0:
-                    viewer.sync()
-
-                step_idx += 1
-
-                # 4. Check success condition (cube placed inside blue target bin)
-                cube_pos = env.data.xpos[cube_id]
-                dx = abs(cube_pos[0] - TARGET_BIN_POS[0])
-                dy = abs(cube_pos[1] - TARGET_BIN_POS[1])
-                dz = abs(cube_pos[2] - TARGET_BIN_POS[2])
-
-                if dx < 0.08 and dy < 0.08 and dz < 0.08:
-                    ep_success = True
-                    # Hold for ~2 seconds so the viewer shows the cube settled in the bin
-                    for _ in range(60):
-                        mujoco.mj_step(env.model, env.data)
-                        if viewer is not None:
-                            viewer.sync()
-                        if save_video:
-                            ep_frames.append(scene_cam.get_rgb(env.data))
-                    break
-
-            if ep_success:
-                success_count += 1
-                final_cube = env.data.xpos[cube_id]
-                print(f"  \033[1;32m✓ Episode {ep:02d} SUCCESS in {step_idx} steps! (Cube at [{final_cube[0]:.3f}, {final_cube[1]:.3f}, {final_cube[2]:.3f}])\033[0m")
+            res_step = env.step(action)
+            if isinstance(res_step, tuple) and len(res_step) == 5:
+                obs_raw, reward, terminated, truncated, info = res_step
+                done = terminated or truncated
+            elif isinstance(res_step, tuple) and len(res_step) == 4:
+                obs_raw, reward, done, info = res_step
             else:
-                print(f"  \033[1;31m✗ Episode {ep:02d} FAILED (Timed out at {step_idx} steps)\033[0m")
+                obs_raw, reward, done, info = res_step, 0.0, False, {}
 
-            if save_video and ep_frames:
-                out_vid = v_path / f"eval_episode_{ep:04d}.mp4"
-                imageio.mimsave(str(out_vid), ep_frames, fps=30)
-                print(f"  ✓ Saved rollout video: {out_vid}")
+            episode_reward += reward
 
-    finally:
-        if viewer is not None:
-            try:
-                viewer.close()
-            except Exception:
-                pass
+            if isinstance(info, dict) and info.get("success", False):
+                success = True
+                print(f"  ✓ SUCCESS! Pick & Place completed at step {step_idx+1}")
+                break
+
+        if success:
+            success_count += 1
+        else:
+            print(f"  Episode finished (Steps: {step_idx+1}, Total Reward: {episode_reward:.2f})")
+
+        if save_video and len(frames) > 0:
+            v_path = video_out_dir / f"eval_episode_{ep+1}.mp4"
+            write_video(v_path, frames, fps=30)
+            print(f"  ✓ Saved rollout video: {v_path}")
+
+    if viewer is not None:
+        viewer.close()
 
     success_rate = (success_count / num_episodes) * 100.0
-    print("\n" + "=" * 76)
-    print("  EVALUATION SUMMARY:")
+    print(f"\n========================================================================")
+    print(f"               Evaluation Benchmark Summary                            ")
+    print(f"========================================================================")
     print(f"  Total Episodes : {num_episodes}")
-    print(f"  Success Count  : {success_count}/{num_episodes}")
-    print(f"  Success Rate   : \033[1;32m{success_rate:.1f}%\033[0m")
-    print("=" * 76 + "\n")
+    print(f"  Successes      : {success_count} / {num_episodes}")
+    print(f"  Success Rate   : {success_rate:.1f}%")
+    print(f"========================================================================\n")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate Trained LeRobot Policy in Piper MuJoCo Environment")
-    parser.add_argument("--checkpoint", type=str, default="checkpoints/act_lerobot/best_model",
-                        help="Path to trained LeRobot policy checkpoint directory or HF repo")
-    parser.add_argument("--num-episodes", type=int, default=10,
-                        help="Number of evaluation test episodes (default: 10)")
-    parser.add_argument("--max-steps", type=int, default=350,
-                        help="Maximum execution steps per episode (default: 350)")
-    parser.add_argument("--headless", action="store_true", default=False,
-                        help="Run in headless mode without GUI viewer")
-    parser.add_argument("--save-video", action="store_true", default=False,
-                        help="Save evaluation rollout videos")
-    parser.add_argument("--video-dir", type=str, default="eval_videos",
-                        help="Directory to save evaluation rollout videos")
-    parser.add_argument("--device", type=str, default=None,
-                        help="Device to run policy evaluation on ('cuda' or 'cpu')")
-    parser.add_argument("--num-inference-steps", type=int, default=5,
-                        help="DDPM denoising steps per action chunk during evaluation for Diffusion Policy (default: 5)")
-    parser.add_argument("--task", type=str, default="pick up the red cube and place it into the bin",
-                        help="Language task instruction for VLA policy evaluation")
+    parser = argparse.ArgumentParser(description="Agilex Piper Interactive LeRobot Policy Evaluator")
+    parser.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint folder or pretrained_model")
+    parser.add_argument("--num-episodes", type=int, default=5, help="Number of evaluation episodes")
+    parser.add_argument("--max-steps", type=int, default=300, help="Maximum steps per episode")
+    parser.add_argument("--headless", action="store_true", help="Run without opening interactive 3D viewer")
+    parser.add_argument("--save-video", action="store_true", help="Export rollout MP4 videos")
+    parser.add_argument("--video-dir", type=str, default="eval_videos", help="Directory to save MP4 videos")
     args = parser.parse_args()
 
-    evaluate_lerobot_policy(
-        checkpoint_path=args.checkpoint,
+    evaluate_policy(
+        args.checkpoint,
         num_episodes=args.num_episodes,
         max_steps=args.max_steps,
         headless=args.headless,
         save_video=args.save_video,
-        video_dir=args.video_dir,
-        device=args.device,
-        num_inference_steps=args.num_inference_steps,
-        task=args.task,
+        video_dir=args.video_dir
     )
 
 

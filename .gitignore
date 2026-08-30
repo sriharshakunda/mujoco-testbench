@@ -1,5 +1,7 @@
 # Data collection episodes and datasets
 data/
+outputs/
+eval_videos/
 episodes/
 datasets/
 recordings/
@@ -23,6 +25,7 @@ wandb/
 
 # Logs and telemetry
 logs/
+MUJOCO_LOG.TXT
 *.log
 *.csv
 

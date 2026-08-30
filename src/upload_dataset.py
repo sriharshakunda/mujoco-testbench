@@ -26,8 +26,18 @@ def upload_to_huggingface(data_dir: str, repo_id: str, private: bool = False, to
         sys.exit(1)
 
     hf_token = token or os.environ.get("HF_TOKEN") or None
-
     api = HfApi(token=hf_token)
+
+    if "/" not in repo_id:
+        try:
+            user_info = api.whoami()
+            username = user_info.get("name") or user_info.get("fullname")
+            if username:
+                repo_id = f"{username}/{repo_id}"
+                print(f"\033[1;33m[Hugging Face Upload] Prepended username '{username}' -> repo_id='{repo_id}'\033[0m")
+        except Exception:
+            print(f"\033[1;31mError: '--repo-id' must be formatted as '<USERNAME>/<DATASET_NAME>' (e.g. '<your-username>/{repo_id}').\033[0m")
+            sys.exit(1)
 
     print(f"\n\033[1;34m[Hugging Face Upload] Preparing repository '{repo_id}' (private={private})...\033[0m")
     try:

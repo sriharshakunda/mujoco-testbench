@@ -20,6 +20,12 @@ import numpy as np
 import mujoco
 import mujoco.viewer
 
+try:
+    import av
+    av.logging.set_level(av.logging.ERROR)
+except Exception:
+    pass
+
 from src.environment.env import PiperEnv
 from src.controllers.ik_controller import DifferentialIKController, mat2euler
 from src.spacemouse import SpaceMouse
@@ -114,7 +120,7 @@ def print_status(
     qpos = env.data.qpos[:N_ARM_JOINTS]
     sm_status = "ON" if (sm_enabled and sm_connected) else ("PAUSED" if sm_connected else "N/A")
     rec_status = (
-        f"\033[1;31mREC Ep {recorder.current_episode_idx:03d} ({len(recorder._states)}f)\033[0m"
+        f"\033[1;31mREC Ep {recorder.num_episodes:03d}\033[0m"
         if recorder.is_recording
         else "\033[1;30mIDLE\033[0m"
     )
@@ -151,13 +157,13 @@ def run(
         dataset_dir=data_dir,
         fps=30,
         task_description=task_description,
-        image_height=240,
-        image_width=320,
+        image_height=720,
+        image_width=1280,
     )
 
-    wrist_cam = WristCamera(env.model, cam_name="wrist_rgb", height=240, width=320, exposure=exposure)
-    scene_cam = WristCamera(env.model, cam_name="scene_cam", height=240, width=320, exposure=exposure)
-    topdown_cam = WristCamera(env.model, cam_name="topdown_cam", height=240, width=320, exposure=exposure)
+    wrist_cam = WristCamera(env.model, cam_name="wrist_rgb", height=720, width=1280, exposure=exposure)
+    scene_cam = WristCamera(env.model, cam_name="scene_cam", height=720, width=1280, exposure=exposure)
+    front_cam = WristCamera(env.model, cam_name="front_cam", height=720, width=1280, exposure=exposure)
 
     telemetry_plotter = TelemetryGraphPlotter(width=640, height=240, max_history=150)
     cam_viz = MultiCameraVisualizer(include_graph=True) if show_camera else None
@@ -311,10 +317,9 @@ def run(
 
                 if recorder.is_recording and (now - last_record_time >= (1.0 / recorder.fps)):
                     last_record_time = now
-                    w_rgb, w_dep = wrist_cam.get_rgb_and_depth(env.data)
+                    w_rgb = wrist_cam.get_rgb(env.data)
                     s_rgb = scene_cam.get_rgb(env.data)
-                    t_rgb = topdown_cam.get_rgb(env.data)
-                    recorder.record_step(state, action, w_rgb, w_dep, s_rgb, t_rgb)
+                    recorder.record_step(state, action, w_rgb, extrinsic_rgb=s_rgb)
 
                 # -------------------------------------------------------------
                 # 4. Multi-Camera & Telemetry Graph Visualizer Window
@@ -322,11 +327,12 @@ def run(
                 if step % CAMERA_EVERY == 0:
                     telemetry_plotter.add_sample(state)
                     if cam_viz is not None and cam_viz.is_open:
-                        w_rgb, w_dep = wrist_cam.get_rgb_and_depth(env.data)
+                        w_rgb = wrist_cam.get_rgb(env.data)
+                        w_depth = wrist_cam.get_depth(env.data)
                         s_rgb = scene_cam.get_rgb(env.data)
-                        t_rgb = topdown_cam.get_rgb(env.data)
+                        f_rgb = front_cam.get_rgb(env.data)
                         graph_img = telemetry_plotter.render_live_graph()
-                        cam_viz.update(w_rgb, w_dep, s_rgb, t_rgb, graph_rgb=graph_img)
+                        cam_viz.update(w_rgb, w_depth, s_rgb, f_rgb, graph_rgb=graph_img)
 
                     print_status(
                         env,
@@ -345,6 +351,7 @@ def run(
         sm.stop()
         if recorder.is_recording:
             recorder.save_episode(success=True)
+        recorder.finalize()
         if viewer is not None:
             try:
                 viewer.close()

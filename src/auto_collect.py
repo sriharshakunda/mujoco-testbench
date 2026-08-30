@@ -22,6 +22,13 @@ import argparse
 from pathlib import Path
 import numpy as np
 import mujoco
+
+try:
+    import av
+    av.logging.set_level(av.logging.ERROR)
+except Exception:
+    pass
+
 try:
     import mujoco.viewer
     VIEWER_AVAILABLE = True
@@ -134,16 +141,17 @@ def auto_collect_dataset(
     env = PiperEnv()
     agent = AutoPickAndPlaceAgent(env)
 
-    # Initialize 4 Cameras
-    wrist_cam = WristCamera(env.model, "wrist_rgb", exposure=1.0)
-    scene_cam = WristCamera(env.model, "scene_cam", exposure=1.0)
-    topdown_cam = WristCamera(env.model, "topdown_cam", exposure=1.0)
+    # Initialize 2 HD Cameras (Wrist Gripper View + Side Scene View)
+    wrist_cam = WristCamera(env.model, "wrist_rgb", height=480, width=640, exposure=1.0)
+    scene_cam = WristCamera(env.model, "scene_cam", height=480, width=640, exposure=1.0)
 
-    # Initialize LeRobot Dataset Recorder
+    # Initialize LeRobot Dataset Recorder (480x640 HD Resolution)
     recorder = LeRobotDatasetRecorder(
         dataset_dir=data_dir,
         fps=fps,
         task_description=task_description,
+        image_height=480,
+        image_width=640,
     )
 
     viewer = None
@@ -188,15 +196,14 @@ def auto_collect_dataset(
 
             def record_and_step(target_pos: np.ndarray, gripper_val: float, steps: int):
                 for _ in range(steps):
-                    # Capture Multi-Modal Step
+                    # Capture Multi-Modal Step (Wrist Gripper + Side Extrinsic)
                     state = np.concatenate([env.data.qpos[:N_ARM_JOINTS], [env.data.qpos[N_ARM_JOINTS]]])
                     action = np.concatenate([env.data.ctrl[:N_ARM_JOINTS], [gripper_val]])
 
-                    w_rgb, w_dep = wrist_cam.get_rgb_and_depth(env.data)
+                    w_rgb = wrist_cam.get_rgb(env.data)
                     s_rgb = scene_cam.get_rgb(env.data)
-                    t_rgb = topdown_cam.get_rgb(env.data)
 
-                    recorder.record_step(state, action, w_rgb, w_dep, s_rgb, t_rgb)
+                    recorder.record_step(state, action, w_rgb, extrinsic_rgb=s_rgb)
 
                     # Compute IK and step physics
                     agent.step_ik(target_pos, gripper_ctrl=gripper_val)
@@ -252,7 +259,9 @@ def auto_collect_dataset(
                 recorder.save_episode(success=True)
             else:
                 print(f"  \033[1;31m✗ Attempt FAILED (Cube missed bin). Discarding episode.\033[0m")
-                recorder.discard_current_episode()
+                recorder.discard_episode()
+
+        recorder.finalize()
 
     finally:
         if viewer is not None:

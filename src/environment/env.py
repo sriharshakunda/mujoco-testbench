@@ -1,5 +1,6 @@
 """MuJoCo environment wrapper for Agilex Piper arm."""
 
+import os
 import time
 import logging
 from pathlib import Path
@@ -205,32 +206,82 @@ if GYM_AVAILABLE:
         """Gymnasium environment wrapper for Agilex Piper MuJoCo simulation."""
         metadata = {"render_modes": ["rgb_array", "human"], "render_fps": 30}
 
-        def __init__(self, render_mode: Optional[str] = None, max_episode_steps: int = 500):
+        def __init__(self, render_mode: Optional[str] = None, max_episode_steps: int = 300):
             super().__init__()
             self.env = PiperEnv(render_mode=render_mode, max_episode_steps=max_episode_steps)
             self.render_mode = render_mode
             self.max_episode_steps = max_episode_steps
+            self._max_episode_steps = max_episode_steps
+            self.task = "pick up the red block and place in blue bin"
+            self.task_description = "pick up the red block and place in blue bin"
+
+            from src.camera import WristCamera
+            self.wrist_cam = WristCamera(self.env.model, "wrist_rgb", height=480, width=640)
+            self.scene_cam = WristCamera(self.env.model, "scene_cam", height=480, width=640)
 
             ctrl_min = self.env.model.actuator_ctrlrange[:, 0]
             ctrl_max = self.env.model.actuator_ctrlrange[:, 1]
             self.action_space = spaces.Box(low=ctrl_min, high=ctrl_max, dtype=np.float32)
 
-            obs_dim = self.env.observation_space_shape[0]
-            self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
+            self.observation_space = spaces.Dict({
+                "observation.state": spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32),
+                "observation.images.wrist": spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
+                "observation.images.extrinsic": spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
+                "agent_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32),
+                "pixels": spaces.Dict({
+                    "wrist": spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
+                    "extrinsic": spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
+                }),
+            })
+
+        def _get_obs(self) -> dict:
+            state = np.concatenate([self.env.data.qpos[:6], [self.env.data.qpos[6]]]).astype(np.float32)
+            w_rgb = self.wrist_cam.get_rgb(self.env.data)
+            s_rgb = self.scene_cam.get_rgb(self.env.data)
+            return {
+                "observation.state": state,
+                "observation.images.wrist": w_rgb,
+                "observation.images.extrinsic": s_rgb,
+                "agent_pos": state,
+                "pixels": {
+                    "wrist": w_rgb,
+                    "extrinsic": s_rgb,
+                }
+            }
 
         def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
             if seed is not None:
                 np.random.seed(seed)
-            obs, info = self.env.reset(randomize_cubes=True)
-            return obs.astype(np.float32), info
+            self.env.reset(randomize_cubes=True)
+            obs_dict = self._get_obs()
+            return obs_dict, {}
 
         def step(self, action: np.ndarray):
-            obs, reward, terminated, truncated, info = self.env.step(action)
-            return obs.astype(np.float32), reward, terminated, truncated, info
+            _, reward, terminated, truncated, info = self.env.step(action)
+            obs_dict = self._get_obs()
+            return obs_dict, reward, terminated, truncated, info
 
         def render(self):
             return self.env.render()
 
         def close(self):
             self.env.close()
+
+def make_env(n_envs: int = 1, use_async_envs: bool = False, render_mode: Optional[str] = None):
+    """
+    Create vectorized environments for MuJoCo Piper task (LeRobot EnvHub Standard).
+    """
+    if not GYM_AVAILABLE:
+        raise ImportError("Gymnasium is required to create vectorized environments.")
+
+    # Prevent X11 display collisions in parallel worker processes
+    if "MUJOCO_GL" not in os.environ:
+        if use_async_envs or n_envs > 1 or render_mode != "human":
+            os.environ["MUJOCO_GL"] = "egl"
+
+    def _make_single_env():
+        return PiperGymEnv(render_mode=render_mode)
+
+    env_cls = gym.vector.AsyncVectorEnv if use_async_envs else gym.vector.SyncVectorEnv
+    return env_cls([_make_single_env for _ in range(n_envs)])
 
