@@ -222,6 +222,21 @@ try:
         print('  ✓ Applied PyAV logging suppression patch')
 except Exception as e:
     print(f'  Note on PyAV logging patch: {e}')
+
+# Patch 13: Fix target_version NameError in lerobot/datasets/utils.py
+try:
+    import lerobot.datasets.utils as u_mod
+    u_file = pathlib.Path(u_mod.__file__)
+    u_content = u_file.read_text()
+    if 'target_version = version if isinstance(version, packaging.version.Version)' not in u_content:
+        u_content = u_content.replace(
+            'if repo_id.startswith("local/") or "/" not in repo_id:\n        return str(version) if isinstance(version, packaging.version.Version) else (version or CODEBASE_VERSION)',
+            'if repo_id.startswith("local/") or "/" not in repo_id:\n        return str(version) if isinstance(version, packaging.version.Version) else (version or CODEBASE_VERSION)\n\n    target_version = version if isinstance(version, packaging.version.Version) else packaging.version.parse(version or CODEBASE_VERSION)'
+        )
+        u_file.write_text(u_content)
+        print('  ✓ Applied target_version bug fix patch')
+except Exception as e:
+    print(f'  Note on target_version patch: {e}')
 "
 
 echo "===================================================================="
