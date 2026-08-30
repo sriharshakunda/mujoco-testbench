@@ -207,6 +207,21 @@ try:
         print('  ✓ Applied dataset_metadata exist_ok patch')
 except Exception as e:
     print(f'  Note on dataset_metadata patch: {e}')
+
+# Patch 12: Suppress PyAV C-level verbose logs in lerobot/datasets/video_utils.py
+try:
+    import lerobot.datasets.video_utils as vu_mod
+    vu_file = pathlib.Path(vu_mod.__file__)
+    vu_content = vu_file.read_text()
+    if 'av.logging.set_level(av.logging.ERROR)' not in vu_content:
+        vu_content = vu_content.replace(
+            'import av',
+            'import av\ntry:\n    av.logging.set_level(av.logging.ERROR)\nexcept Exception:\n    pass'
+        )
+        vu_file.write_text(vu_content)
+        print('  ✓ Applied PyAV logging suppression patch')
+except Exception as e:
+    print(f'  Note on PyAV logging patch: {e}')
 "
 
 echo "===================================================================="
