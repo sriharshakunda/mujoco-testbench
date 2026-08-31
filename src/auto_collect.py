@@ -95,7 +95,7 @@ class AutoPickAndPlaceAgent:
         J_pos = jacp[:, :6]
         J_rot = jacr[:, :6]
 
-        err = np.concatenate([8.0 * pos_err, 2.0 * rot_err])
+        err = np.concatenate([8.0 * pos_err, 12.0 * rot_err])
         J = np.vstack([J_pos, J_rot])
 
         damping = 1e-3
@@ -124,6 +124,7 @@ def auto_collect_dataset(
     num_episodes: int = 10,
     data_dir: str = 'data/red_block_dataset',
     task_description: str = 'pick up the red cube and place it into the blue bin',
+    repo_id: str = 'local/dataset',
     fps: int = 30,
     headless: bool = False,
     viewer_sync: bool = True,
@@ -133,6 +134,7 @@ def auto_collect_dataset(
     print("=" * 76)
     print(f"  Target Episodes : \033[1;32m{num_episodes}\033[0m")
     print(f"  Output Directory: \033[1;34m{data_dir}\033[0m")
+    print(f"  Repo ID         : \033[1;35m{repo_id}\033[0m")
     print(f"  Task Prompt     : \033[1;37m\"{task_description}\"\033[0m")
     print(f"  Capture Rate    : \033[1;36m{fps} FPS\033[0m")
     print(f"  Headless Mode   : \033[1;33m{headless}\033[0m")
@@ -141,17 +143,18 @@ def auto_collect_dataset(
     env = PiperEnv()
     agent = AutoPickAndPlaceAgent(env)
 
-    # Initialize 2 HD Cameras (Wrist Gripper View + Side Scene View)
-    wrist_cam = WristCamera(env.model, "wrist_rgb", height=720, width=1280, exposure=1.0)
-    scene_cam = WristCamera(env.model, "scene_cam", height=720, width=1280, exposure=1.0)
+    # Initialize Multi-Camera System (Wrist & Scene 480x640 Resolution)
+    front_cam = WristCamera(env.model, "front_cam", height=480, width=640, exposure=1.0)
+    scene_cam = WristCamera(env.model, "scene_cam", height=480, width=640, exposure=1.0)
 
-    # Initialize LeRobot Dataset Recorder (720x1280 HD Resolution)
+    # Initialize LeRobot Dataset Recorder (480x640 Resolution)
     recorder = LeRobotDatasetRecorder(
         dataset_dir=data_dir,
         fps=fps,
         task_description=task_description,
-        image_height=720,
-        image_width=1280,
+        repo_id=repo_id,
+        image_height=480,
+        image_width=640,
     )
 
     viewer = None
@@ -179,10 +182,9 @@ def auto_collect_dataset(
             # 1. Reset Environment with Tabletop Cube Randomization
             env.reset(randomize_cubes=True)
 
-            # Start in natural forward-reaching ready posture
-            env.data.qpos[:6] = np.array([0.20, -2.00, -0.60, 0.00, 1.00, 0.00])
-            env.data.ctrl[:6] = env.data.qpos[:6]
-            env.data.ctrl[6] = GRIPPER_OPEN
+            # Start at exact HOME_QPOS posture used in manual teleop app.py
+            env.data.qpos[:7] = np.array([0.0, -3.14, -0.22, 0.0, 0.0, 0.0, GRIPPER_OPEN])
+            env.data.ctrl[:7] = env.data.qpos[:7]
             mujoco.mj_forward(env.model, env.data)
 
             if viewer is not None:
@@ -196,14 +198,14 @@ def auto_collect_dataset(
 
             def record_and_step(target_pos: np.ndarray, gripper_val: float, steps: int):
                 for _ in range(steps):
-                    # Capture Multi-Modal Step (Wrist Gripper + Side Extrinsic)
+                    # Capture Multi-Modal Step (Front Cam + Side Cam)
                     state = np.concatenate([env.data.qpos[:N_ARM_JOINTS], [env.data.qpos[N_ARM_JOINTS]]])
                     action = np.concatenate([env.data.ctrl[:N_ARM_JOINTS], [gripper_val]])
 
-                    w_rgb = wrist_cam.get_rgb(env.data)
+                    f_rgb = front_cam.get_rgb(env.data)
                     s_rgb = scene_cam.get_rgb(env.data)
 
-                    recorder.record_step(state, action, w_rgb, extrinsic_rgb=s_rgb)
+                    recorder.record_step(state, action, f_rgb, extrinsic_rgb=s_rgb)
 
                     # Compute IK and step physics
                     agent.step_ik(target_pos, gripper_ctrl=gripper_val)
@@ -214,40 +216,41 @@ def auto_collect_dataset(
                         viewer.sync()
 
             # -------------------------------------------------------------
-            # Autonomous Trajectory Execution
+            # Autonomous Closed-Loop Trajectory Execution (User Specification)
             # -------------------------------------------------------------
-            # Waypoint 1: Approach & Hover above Cube (open gripper)
+            # 1. Start at HOME Posture (Hold for 5 frames)
+            init_home_pos = np.array([0.245, 0.0, 0.380])
+            record_and_step(init_home_pos, GRIPPER_OPEN, steps=5)
+
+            # 2. Pitch Down & Move Directly to Top of Red Cube Center (Straight Line)
             hover_pos = np.array([cube_init_pos[0], cube_init_pos[1], HOVER_HEIGHT])
             record_and_step(hover_pos, GRIPPER_OPEN, steps=35)
 
-            # Waypoint 2: Descend to Grasp Level
+            # 4. Slowly Move Down to Grasp Level
             grasp_pos = np.array([cube_init_pos[0], cube_init_pos[1], GRASP_HEIGHT])
             record_and_step(grasp_pos, GRIPPER_OPEN, steps=30)
 
-            # Waypoint 3: Clamp Gripper firmly on Cube
+            # 5. Close Gripper firmly on Cube
             record_and_step(grasp_pos, GRIPPER_CLOSED, steps=30)
 
-            # Waypoint 4: Lift Cube smoothly
+            # 6. Lift Up to Transit Height
             lift_pos = np.array([cube_init_pos[0], cube_init_pos[1], TRANSIT_HEIGHT])
-            record_and_step(lift_pos, GRIPPER_CLOSED, steps=30)
+            record_and_step(lift_pos, GRIPPER_CLOSED, steps=35)
 
-            # Waypoint 5: Transport over to Target Blue Bin
+            # 7. Slowly Move to Blue Bin
             bin_above_pos = np.array([TARGET_BIN_POS[0], TARGET_BIN_POS[1], TRANSIT_HEIGHT])
             record_and_step(bin_above_pos, GRIPPER_CLOSED, steps=45)
 
-            # Waypoint 6: Lower into Blue Bin
+            # Lower into Blue Bin
             bin_place_pos = np.array([TARGET_BIN_POS[0], TARGET_BIN_POS[1], PLACE_HEIGHT])
             record_and_step(bin_place_pos, GRIPPER_CLOSED, steps=25)
 
-            # Waypoint 7: Open Gripper to Release Cube
+            # 8. Open Gripper to Release Cube
             record_and_step(bin_place_pos, GRIPPER_OPEN, steps=25)
 
-            # Waypoint 8: Ascend back to Transit Height
+            # 9. Slowly Move Away back to HOME Posture
             record_and_step(bin_above_pos, GRIPPER_OPEN, steps=25)
-
-            # Waypoint 9: Settle and Return towards Ready Posture
-            ready_pos = np.array([0.28, 0.12, TRANSIT_HEIGHT])
-            record_and_step(ready_pos, GRIPPER_OPEN, steps=20)
+            record_and_step(init_home_pos, GRIPPER_OPEN, steps=35)
 
             # -------------------------------------------------------------
             # Success Verification & Commitment
@@ -284,6 +287,8 @@ def main():
                         help='Target dataset directory (default: data/red_block_dataset)')
     parser.add_argument('--task', type=str, default='pick up the red cube and place it into the blue bin',
                         help='Language instruction prompt for VLA training')
+    parser.add_argument('--repo-id', type=str, default='local/dataset',
+                        help='Repository ID for dataset metadata (default: local/dataset)')
     parser.add_argument('--fps', type=int, default=30,
                         help='Recording FPS (default: 30)')
     parser.add_argument('--headless', action='store_true', default=False,
@@ -294,6 +299,7 @@ def main():
         num_episodes=args.num_episodes,
         data_dir=args.data_dir,
         task_description=args.task,
+        repo_id=args.repo_id,
         fps=args.fps,
         headless=args.headless,
     )

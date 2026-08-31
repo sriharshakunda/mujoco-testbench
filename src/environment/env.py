@@ -8,6 +8,11 @@ from typing import Optional, Tuple, Dict, Any
 
 import numpy as np
 import mujoco
+try:
+    import mujoco.viewer
+    VIEWER_AVAILABLE = True
+except Exception:
+    VIEWER_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +50,13 @@ class PiperEnv:
         # Cache IDs
         self._ee_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "ee")
         self._target_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "target")
+
+        if render_mode == "human" and VIEWER_AVAILABLE:
+            try:
+                self._viewer = mujoco.viewer.launch_passive(self.model, self.data)
+                logger.info("Launched passive MuJoCo 3D viewer window.")
+            except Exception as e:
+                logger.warning(f"Could not launch GLFW 3D viewer: {e}")
 
         if target_pos is not None:
             self.set_target(target_pos)
@@ -86,6 +98,8 @@ class PiperEnv:
             self.randomize_cubes()
         mujoco.mj_forward(self.model, self.data)
         self._step_count = 0
+        if self._viewer is not None and self._viewer.is_running():
+            self._viewer.sync()
         return self._get_obs(), {}
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
@@ -95,6 +109,9 @@ class PiperEnv:
         self.data.ctrl[:len(action)] = np.clip(action, ctrl_min[:len(action)], ctrl_max[:len(action)])
         mujoco.mj_step(self.model, self.data)
         self._step_count += 1
+
+        if self._viewer is not None and self._viewer.is_running():
+            self._viewer.sync()
 
         obs = self._get_obs()
         reward = self._compute_reward(obs)
@@ -119,10 +136,11 @@ class PiperEnv:
     def get_target_pos(self) -> np.ndarray:
         return self.model.site_pos[self._target_id].copy()
 
-    def render(self) -> Optional[np.ndarray]:
+    def render(self, camera_name: str = "scene_cam") -> Optional[np.ndarray]:
         if self.render_mode == "rgb_array":
             renderer = mujoco.Renderer(self.model, height=480, width=640)
-            renderer.update_scene(self.data)
+            cam_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, camera_name)
+            renderer.update_scene(self.data, camera=cam_id)
             pixels = renderer.render()
             renderer.close()
             return pixels
@@ -206,18 +224,37 @@ if GYM_AVAILABLE:
         """Gymnasium environment wrapper for Agilex Piper MuJoCo simulation."""
         metadata = {"render_modes": ["rgb_array", "human"], "render_fps": 30}
 
-        def __init__(self, render_mode: Optional[str] = None, max_episode_steps: int = 300):
+        def __init__(
+            self,
+            render_mode: Optional[str] = None,
+            max_episode_steps: int = 300,
+            use_front_as_wrist: bool = True,
+            wrist_cam_source: str = "front",
+            extrinsic_cam_source: str = "scene",
+        ):
             super().__init__()
             self.env = PiperEnv(render_mode=render_mode, max_episode_steps=max_episode_steps)
             self.render_mode = render_mode
             self.max_episode_steps = max_episode_steps
             self._max_episode_steps = max_episode_steps
-            self.task = "pick up the red block and place in blue bin"
-            self.task_description = "pick up the red block and place in blue bin"
+            self.use_front_as_wrist = use_front_as_wrist
+            self.wrist_cam_source = "front" if use_front_as_wrist else wrist_cam_source
+            self.extrinsic_cam_source = extrinsic_cam_source
+            self.task = "pick up the red cube and place it into the blue bin"
+            self.task_description = "pick up the red cube and place it into the blue bin"
 
             from src.camera import WristCamera
-            self.wrist_cam = WristCamera(self.env.model, "wrist_rgb", height=480, width=640)
-            self.scene_cam = WristCamera(self.env.model, "scene_cam", height=480, width=640)
+            self.cams = {
+                "wrist": WristCamera(self.env.model, "wrist_rgb", height=480, width=640),
+                "front": WristCamera(self.env.model, "front_cam", height=480, width=640),
+                "scene": WristCamera(self.env.model, "scene_cam", height=480, width=640),
+                "topdown": WristCamera(self.env.model, "topdown_cam", height=480, width=640),
+            }
+            # Convenience aliases
+            self.wrist_cam = self.cams["wrist"]
+            self.front_cam = self.cams["front"]
+            self.scene_cam = self.cams["scene"]
+            self.topdown_cam = self.cams["topdown"]
 
             ctrl_min = self.env.model.actuator_ctrlrange[:, 0]
             ctrl_max = self.env.model.actuator_ctrlrange[:, 1]
@@ -227,25 +264,40 @@ if GYM_AVAILABLE:
                 "observation.state": spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32),
                 "observation.images.wrist": spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
                 "observation.images.extrinsic": spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
+                "observation.images.topdown": spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
                 "agent_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32),
                 "pixels": spaces.Dict({
                     "wrist": spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
                     "extrinsic": spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
+                    "topdown": spaces.Box(low=0, high=255, shape=(480, 640, 3), dtype=np.uint8),
                 }),
             })
 
-        def _get_obs(self) -> dict:
+        def _get_obs(self, use_front_as_wrist: Optional[bool] = None, wrist_source: Optional[str] = None) -> dict:
+            if wrist_source is None:
+                if use_front_as_wrist is not None:
+                    wrist_source = "front" if use_front_as_wrist else "wrist"
+                else:
+                    wrist_source = self.wrist_cam_source
+
+            w_cam = self.cams.get(wrist_source, self.cams["front"])
+            s_cam = self.cams.get(self.extrinsic_cam_source, self.cams["scene"])
+            t_cam = self.cams["topdown"]
+
             state = np.concatenate([self.env.data.qpos[:6], [self.env.data.qpos[6]]]).astype(np.float32)
-            w_rgb = self.wrist_cam.get_rgb(self.env.data)
-            s_rgb = self.scene_cam.get_rgb(self.env.data)
+            w_rgb = w_cam.get_rgb(self.env.data)
+            s_rgb = s_cam.get_rgb(self.env.data)
+            t_rgb = t_cam.get_rgb(self.env.data)
             return {
                 "observation.state": state,
                 "observation.images.wrist": w_rgb,
                 "observation.images.extrinsic": s_rgb,
+                "observation.images.topdown": t_rgb,
                 "agent_pos": state,
                 "pixels": {
                     "wrist": w_rgb,
                     "extrinsic": s_rgb,
+                    "topdown": t_rgb,
                 }
             }
 
@@ -261,8 +313,8 @@ if GYM_AVAILABLE:
             obs_dict = self._get_obs()
             return obs_dict, reward, terminated, truncated, info
 
-        def render(self):
-            return self.env.render()
+        def render(self, camera_name: str = "scene_cam"):
+            return self.env.render(camera_name=camera_name)
 
         def close(self):
             self.env.close()

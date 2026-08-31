@@ -49,7 +49,7 @@ class LeRobotDatasetRecorder:
         self,
         dataset_dir: str = "data/lerobot_dataset",
         fps: int = 30,
-        task_description: str = "pick up the red cube and place it into the bin",
+        task_description: str = "pick up the red cube and place it into the blue bin",
         image_height: int = 480,
         image_width: int = 640,
         repo_id: str = "local/dataset"
@@ -84,15 +84,21 @@ class LeRobotDatasetRecorder:
             }
         }
 
-        has_parquet = any((self.dataset_dir / "data").glob("**/*.parquet")) if (self.dataset_dir / "data").exists() else False
+        has_episodes = (self.dataset_dir / "meta" / "episodes").exists() and any((self.dataset_dir / "meta" / "episodes").glob("*.parquet"))
 
-        if self.dataset_dir.exists() and (self.dataset_dir / "meta" / "info.json").exists() and has_parquet:
-            self.dataset = LeRobotDataset.resume(
-                repo_id=self.repo_id,
-                root=self.dataset_dir,
-                rgb_encoder=RGBEncoderConfig(vcodec="h264"),
-            )
-        else:
+        self.dataset = None
+        if self.dataset_dir.exists() and (self.dataset_dir / "meta" / "info.json").exists() and has_episodes:
+            try:
+                self.dataset = LeRobotDataset.resume(
+                    repo_id=self.repo_id,
+                    root=self.dataset_dir,
+                    rgb_encoder=RGBEncoderConfig(vcodec="h264"),
+                )
+            except Exception as e:
+                print(f"[LeRobot Dataset] Resume failed ({e}), creating fresh dataset...")
+                self.dataset = None
+
+        if self.dataset is None:
             if self.dataset_dir.exists():
                 import shutil
                 shutil.rmtree(self.dataset_dir)

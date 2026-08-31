@@ -94,7 +94,7 @@ case "$MODE" in
         CMD=(lerobot-eval)
         ;;
     hil_serl)
-        CMD=(python -m lerobot.rl.gym_manipulator)
+        CMD=(python -m src.train_hilserl)
         ;;
     reward_classifier)
         CMD=(python -m src.reward_classifier)

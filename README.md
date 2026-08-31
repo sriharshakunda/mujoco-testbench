@@ -18,7 +18,10 @@ A high-fidelity simulation environment, autonomous multi-modal demonstration col
    - [Training on Cloud GPUs & Model Export](#5-training-on-cloud-gpus-runpod-lambda-aws-gcp--model-export)
 4. [Policy Evaluation & Benchmarking](#4-policy-evaluation--benchmarking)
 5. [Dataset Specifications (LeRobot v3.0)](#5-dataset-specifications-lerobot-v30)
-6. [HIL-SERL Reinforcement Learning & DAgger Rollouts](#6-hil-serl-reinforcement-learning--dagger-rollouts)
+6. [HIL-SERL Reinforcement Learning & Interactive Human Interventions](#6-hil-serl-reinforcement-learning--interactive-human-interventions)
+   - [HIL-SERL Training with Demonstration Seeding](#1-launch-hil-serl-training-with-demonstration-seeding)
+   - [Evaluation with Live Human Interventions](#2-evaluate-hil-serl-policy-with-live-human-interventions)
+   - [Vision Reward Classifier & DAgger Interventions](#3-vision-reward-classifier--dagger-interventions)
 
 ---
 
@@ -402,48 +405,69 @@ data/my_auto_dataset/
 
 ---
 
-## 6. HIL-SERL Reinforcement Learning & DAgger Rollouts
+## 6. HIL-SERL Reinforcement Learning & Interactive Human Interventions
 
-Human-In-The-Loop Sample-Efficient Reinforcement Learning (HIL-SERL) combines vision reward classifiers, online Soft Actor-Critic (SAC) RL, and real-time human interventions.
+Human-in-the-Loop Sample-Efficient Reinforcement Learning (HIL-SERL) combines **offline demonstration dataset buffer seeding** (Behavioral Cloning initialization) with **interactive online Soft Actor-Critic (SAC) RL** and **live human teleoperation interventions**.
 
-### 1. Train Vision Reward Classifier
-Train a binary success detector on completed demonstration datasets:
+### 1. Launch HIL-SERL Training with Demonstration Seeding
+
+Pre-populates the SAC replay buffer instantly from your demonstration dataset (e.g. `data/redcube_picknplace_v4`) and runs online RL training in the live 3D window:
 
 - **Docker Command**:
   ```bash
-  ./docker_run.sh --reward-classifier \
-    --dataset-dir data/my_auto_dataset \
-    --output-dir outputs/reward_classifier
+  ./docker_run.sh --hil-serl --demo-dir data/redcube_picknplace_v4 --timesteps 100000
   ```
 - **Venv Command**:
+  ```bash
+  python -m src.train_hilserl \
+    --demo-dir data/redcube_picknplace_v4 \
+    --timesteps 100000 \
+    --save-dir outputs/train/hilserl_piper
+  ```
+
+---
+
+### 2. Evaluate HIL-SERL Policy with Live Human Interventions
+
+Evaluates a saved HIL-SERL model while allowing you to manually intervene and override control in 3D Cartesian space at any time:
+
+- **Docker Command**:
+  ```bash
+  ./docker_run.sh --hil-serl --eval --model-path outputs/train/hilserl_piper/best_model.zip
+  ```
+- **Venv Command**:
+  ```bash
+  python -m src.train_hilserl \
+    --eval \
+    --model-path outputs/train/hilserl_piper/best_model.zip \
+    --episodes 10 \
+    --fps 30
+  ```
+
+#### Live Human Intervention Controls:
+| Key | 3D Action in MuJoCo |
+|---|---|
+| `W / S` | Move End-Effector Forward / Backward ($+X / -X$) |
+| `A / D` | Move End-Effector Left / Right ($+Y / -Y$) |
+| `R / F` | Move Elevation Height Up / Down ($+Z / -Z$) |
+| `[ / ]` | Open / Close Parallel Gripper |
+| `N` | **Instant Episode Reset** back to Home pose |
+
+- **Automatic Control Relinquishment**: Tapping any key instantly overrides the policy. As soon as you stop pressing keys, control automatically hands back to the autonomous policy!
+
+---
+
+### 3. Vision Reward Classifier & DAgger Interventions
+
+Train a binary success detector on completed demonstration datasets or run DAgger rollouts:
+
+- **Reward Classifier Training**:
   ```bash
   python -m src.reward_classifier \
     --dataset-dir data/my_auto_dataset \
     --output-dir outputs/reward_classifier
   ```
-
----
-
-### 2. Launch HIL-SERL Online SAC Reinforcement Learning
-
-- **Docker Command**:
-  ```bash
-  ./docker_run.sh --hil-serl --config configs/hilserl_piper.json
-  ```
-- **Venv Command**:
-  ```bash
-  python -m lerobot.rl.gym_manipulator --config configs/hilserl_piper.json
-  ```
-
----
-
-### 3. Collect DAgger Human Intervention Rollouts
-
-- **Docker Command**:
-  ```bash
-  ./docker_run.sh --dagger --config configs/hilserl_piper.json
-  ```
-- **Venv Command**:
+- **DAgger Intervention Rollouts**:
   ```bash
   lerobot-rollout --strategy.type=dagger --config configs/hilserl_piper.json
   ```

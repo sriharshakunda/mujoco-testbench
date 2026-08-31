@@ -157,13 +157,13 @@ def run(
         dataset_dir=data_dir,
         fps=30,
         task_description=task_description,
-        image_height=720,
-        image_width=1280,
+        image_height=480,
+        image_width=640,
     )
 
-    wrist_cam = WristCamera(env.model, cam_name="wrist_rgb", height=720, width=1280, exposure=exposure)
-    scene_cam = WristCamera(env.model, cam_name="scene_cam", height=720, width=1280, exposure=exposure)
-    front_cam = WristCamera(env.model, cam_name="front_cam", height=720, width=1280, exposure=exposure)
+    wrist_cam = WristCamera(env.model, cam_name="wrist_rgb", height=480, width=640, exposure=exposure)
+    scene_cam = WristCamera(env.model, cam_name="scene_cam", height=480, width=640, exposure=exposure)
+    front_cam = WristCamera(env.model, cam_name="front_cam", height=480, width=640, exposure=exposure)
 
     telemetry_plotter = TelemetryGraphPlotter(width=640, height=240, max_history=150)
     cam_viz = MultiCameraVisualizer(include_graph=True) if show_camera else None
@@ -317,9 +317,9 @@ def run(
 
                 if recorder.is_recording and (now - last_record_time >= (1.0 / recorder.fps)):
                     last_record_time = now
-                    w_rgb = wrist_cam.get_rgb(env.data)
+                    f_rgb = front_cam.get_rgb(env.data)
                     s_rgb = scene_cam.get_rgb(env.data)
-                    recorder.record_step(state, action, w_rgb, extrinsic_rgb=s_rgb)
+                    recorder.record_step(state, action, f_rgb, extrinsic_rgb=s_rgb)
 
                 # -------------------------------------------------------------
                 # 4. Multi-Camera & Telemetry Graph Visualizer Window
@@ -328,11 +328,10 @@ def run(
                     telemetry_plotter.add_sample(state)
                     if cam_viz is not None and cam_viz.is_open:
                         w_rgb = wrist_cam.get_rgb(env.data)
-                        w_depth = wrist_cam.get_depth(env.data)
                         s_rgb = scene_cam.get_rgb(env.data)
                         f_rgb = front_cam.get_rgb(env.data)
                         graph_img = telemetry_plotter.render_live_graph()
-                        cam_viz.update(w_rgb, w_depth, s_rgb, f_rgb, graph_rgb=graph_img)
+                        cam_viz.update(w_rgb, None, s_rgb, f_rgb, graph_rgb=graph_img)
 
                     print_status(
                         env,

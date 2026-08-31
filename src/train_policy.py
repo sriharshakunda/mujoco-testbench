@@ -59,6 +59,7 @@ def launch_lerobot_train(
     dry_run: bool = False,
     num_workers: int = 0,
 ):
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     if output_dir is None:
         output_dir = f"outputs/train/{policy_type}_piper"
 
@@ -92,15 +93,31 @@ def launch_lerobot_train(
         cmd.append("--resume=true")
 
     cmd.append(f"--policy.type={policy_type.lower()}")
+    cmd.append("--policy.use_amp=true")
+
+    # Build dynamic rename_map based on available camera features in info.json
+    total_frames = get_total_frames(dataset_root)
+    info_path = os.path.join(dataset_root, "meta", "info.json")
+    has_topdown = False
+    if os.path.exists(info_path):
+        try:
+            with open(info_path) as f:
+                info = json.load(f)
+            features = info.get("features", {})
+            has_topdown = "observation.images.topdown" in features
+        except Exception:
+            pass
+
+    if has_topdown:
+        rename_map = '{"observation.images.wrist": "observation.images.camera1", "observation.images.extrinsic": "observation.images.camera2", "observation.images.topdown": "observation.images.camera3"}'
+    else:
+        rename_map = '{"observation.images.wrist": "observation.images.camera1", "observation.images.extrinsic": "observation.images.camera2"}'
 
     if policy_type.lower() == "smolvla":
         base_path = pretrained_path or "lerobot/smolvla_base"
         cmd.append(f"--policy.pretrained_path={base_path}")
-        rename_map = '{"observation.images.wrist": "observation.images.camera1", "observation.images.extrinsic": "observation.images.camera2", "observation.images.topdown": "observation.images.camera3"}'
-        cmd.append(f"--rename_map={rename_map}")
     elif pretrained_path:
         cmd.append(f"--policy.pretrained_path={pretrained_path}")
-        rename_map = '{"observation.images.wrist": "observation.images.camera1", "observation.images.extrinsic": "observation.images.camera2", "observation.images.topdown": "observation.images.camera3"}'
         cmd.append(f"--rename_map={rename_map}")
 
     if push_to_hub:
@@ -165,8 +182,8 @@ def launch_lerobot_train(
 
 def main():
     parser = argparse.ArgumentParser(description="Train Policy using Official Hugging Face LeRobot CLI")
-    parser.add_argument("--repo-id", type=str, required=True,
-                        help="Hugging Face Dataset Repo ID (e.g. username/dataset_name)")
+    parser.add_argument("--repo-id", type=str, default="local/manual_data",
+                        help="Hugging Face Dataset Repo ID (default: local/manual_data)")
     parser.add_argument("--dataset-root", type=str, default="data/red_block_dataset",
                         help="Local path to dataset (default: data/red_block_dataset)")
     parser.add_argument("--policy-type", type=str, default="act", choices=["act", "diffusion", "smolvla"],

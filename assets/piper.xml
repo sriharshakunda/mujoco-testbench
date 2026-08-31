@@ -153,7 +153,7 @@
                       <geom name="pad1" type="box" size="0.01 0.01 0.001"
                             pos="0.0 -0.01 0.0"
                             friction="2.5 0.5 0.01" solref="0.004 1.0" solimp="0.95 0.99 0.001 0.5 2"
-                            rgba="0.85 0.2 0.2 0.8"/>
+                            rgba="0.15 0.15 0.15 1"/>
                       <inertial pos="0.00065 -0.04919 0.00972" mass="0.025"
                                 fullinertia="0.00007371 0.00000781 0.00007470
                                              -0.00000113  0.00000021 -0.00001372"/>
@@ -166,7 +166,7 @@
                       <geom name="pad2" type="box" size="0.01 0.01 0.001"
                             pos="0.00 -0.01 0.0"
                             friction="2.5 0.5 0.01" solref="0.004 1.0" solimp="0.95 0.99 0.001 0.5 2"
-                            rgba="0.85 0.2 0.2 0.8"/>
+                            rgba="0.15 0.15 0.15 1"/>
                       <inertial pos="0.00065 -0.04919 0.00972" mass="0.025"
                                 fullinertia="0.00007371 0.00000781 0.00007470
                                              -0.00000113  0.00000021 -0.00001372"/>
@@ -250,8 +250,9 @@
       front_cam : head-on front overview looking back at table, arm & bins.
     -->
     <light name="top_light" pos="0.35 0.00 1.80" dir="0 0 -1" directional="true" diffuse="0.02 0.02 0.02" ambient="0.03 0.03 0.03" specular="0.05 0.05 0.05" castshadow="false"/>
-    <camera name="scene_cam" pos="0.30 -0.40 0.4" euler="1.57 0 0" fovy="70"/>
+    <camera name="scene_cam" pos="0.15 -0.40 0.4" euler="1.57 0 0" fovy="70"/>
     <camera name="front_cam" pos="0.7 0.30 0.5" euler="0 1.25 1.57" fovy="70"/>
+    <camera name="topdown_cam" pos="0.35 0.30 0.95" euler="0 0 0" fovy="60"/>
   </worldbody>
 
   <!--

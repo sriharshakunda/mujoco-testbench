@@ -26,6 +26,7 @@ wandb/
 # Logs and telemetry
 logs/
 MUJOCO_LOG.TXT
+MJDATA.TXT
 *.log
 *.csv
 
@@ -98,3 +99,4 @@ htmlcov/
 # Temporary
 *.tmp
 .agent/
+fixed_policy_preprocessor.json
