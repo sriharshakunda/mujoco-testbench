@@ -317,9 +317,16 @@ def run(
 
                 if recorder.is_recording and (now - last_record_time >= (1.0 / recorder.fps)):
                     last_record_time = now
-                    f_rgb = front_cam.get_rgb(env.data)
+                    w_rgb = wrist_cam.get_rgb(env.data)
                     s_rgb = scene_cam.get_rgb(env.data)
-                    recorder.record_step(state, action, f_rgb, extrinsic_rgb=s_rgb)
+                    f_rgb = front_cam.get_rgb(env.data)
+                    recorder.record_step(
+                        state=state,
+                        action=action,
+                        wrist_rgb=w_rgb,
+                        extrinsic_rgb=s_rgb,
+                        topdown_rgb=f_rgb,
+                    )
 
                 # -------------------------------------------------------------
                 # 4. Multi-Camera & Telemetry Graph Visualizer Window

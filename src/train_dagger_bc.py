@@ -91,8 +91,9 @@ def run_dagger_session(
     ik = DifferentialIKController(env.model, site_name="ee", max_iters=25)
     kb = NonBlockingKeyboard()
 
+    wrist_cam = WristCamera(env.model, "wrist_rgb", height=480, width=640)
+    side_cam = WristCamera(env.model, "scene_cam", height=480, width=640)
     front_cam = WristCamera(env.model, "front_cam", height=480, width=640)
-    scene_cam = WristCamera(env.model, "scene_cam", height=480, width=640)
 
     sm = None
     if SPACEMOUSE_AVAILABLE:
@@ -129,9 +130,10 @@ def run_dagger_session(
         manual_finish = False
 
         while step < max_steps_per_episode and not manual_finish:
-            # 1. Capture Current Multi-Modal Frames & State
-            w_rgb = front_cam.get_rgb(env.data)
-            s_rgb = scene_cam.get_rgb(env.data)
+            # 1. Capture Current Multi-Modal Frames & State (Wrist, Side, Front/Topdown)
+            w_rgb = wrist_cam.get_rgb(env.data)
+            s_rgb = side_cam.get_rgb(env.data)
+            f_rgb = front_cam.get_rgb(env.data)
             qpos = np.concatenate([env.data.qpos[:6], [env.data.qpos[6]]]).astype(np.float32)
 
             dx, dy, dz = 0.0, 0.0, 0.0
@@ -204,6 +206,7 @@ def run_dagger_session(
                 action=ctrl_action,
                 wrist_rgb=w_rgb,
                 extrinsic_rgb=s_rgb,
+                topdown_rgb=f_rgb,
             )
 
             step += 1

@@ -246,15 +246,14 @@ if GYM_AVAILABLE:
             from src.camera import WristCamera
             self.cams = {
                 "wrist": WristCamera(self.env.model, "wrist_rgb", height=480, width=640),
-                "front": WristCamera(self.env.model, "front_cam", height=480, width=640),
                 "scene": WristCamera(self.env.model, "scene_cam", height=480, width=640),
+                "front": WristCamera(self.env.model, "front_cam", height=480, width=640),
                 "topdown": WristCamera(self.env.model, "topdown_cam", height=480, width=640),
             }
-            # Convenience aliases
+            # Camera variable mappings: Wrist=wrist_rgb, Extrinsic=side view (scene_cam), Topdown/Front=front_cam
             self.wrist_cam = self.cams["wrist"]
+            self.side_cam = self.cams["scene"]
             self.front_cam = self.cams["front"]
-            self.scene_cam = self.cams["scene"]
-            self.topdown_cam = self.cams["topdown"]
 
             ctrl_min = self.env.model.actuator_ctrlrange[:, 0]
             ctrl_max = self.env.model.actuator_ctrlrange[:, 1]
@@ -274,30 +273,24 @@ if GYM_AVAILABLE:
             })
 
         def _get_obs(self, use_front_as_wrist: Optional[bool] = None, wrist_source: Optional[str] = None) -> dict:
-            if wrist_source is None:
-                if use_front_as_wrist is not None:
-                    wrist_source = "front" if use_front_as_wrist else "wrist"
-                else:
-                    wrist_source = self.wrist_cam_source
-
-            w_cam = self.cams.get(wrist_source, self.cams["front"])
-            s_cam = self.cams.get(self.extrinsic_cam_source, self.cams["scene"])
-            t_cam = self.cams["topdown"]
+            w_cam = self.cams["wrist"]
+            s_cam = self.cams["scene"]
+            f_cam = self.cams["front"]
 
             state = np.concatenate([self.env.data.qpos[:6], [self.env.data.qpos[6]]]).astype(np.float32)
-            w_rgb = w_cam.get_rgb(self.env.data)
-            s_rgb = s_cam.get_rgb(self.env.data)
-            t_rgb = t_cam.get_rgb(self.env.data)
+            w_rgb = w_cam.get_rgb(self.env.data)  # Wrist camera
+            s_rgb = s_cam.get_rgb(self.env.data)  # Side view camera (extrinsic)
+            f_rgb = f_cam.get_rgb(self.env.data)  # Front camera (topdown)
             return {
                 "observation.state": state,
                 "observation.images.wrist": w_rgb,
                 "observation.images.extrinsic": s_rgb,
-                "observation.images.topdown": t_rgb,
+                "observation.images.topdown": f_rgb,
                 "agent_pos": state,
                 "pixels": {
                     "wrist": w_rgb,
                     "extrinsic": s_rgb,
-                    "topdown": t_rgb,
+                    "topdown": f_rgb,
                 }
             }
 

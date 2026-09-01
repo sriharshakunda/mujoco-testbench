@@ -143,9 +143,10 @@ def auto_collect_dataset(
     env = PiperEnv()
     agent = AutoPickAndPlaceAgent(env)
 
-    # Initialize Multi-Camera System (Wrist & Scene 480x640 Resolution)
+    # Initialize Multi-Camera System (Wrist, Side/Extrinsic & Front/Topdown 480x640 Resolution)
+    wrist_cam = WristCamera(env.model, "wrist_rgb", height=480, width=640, exposure=1.0)
+    side_cam = WristCamera(env.model, "scene_cam", height=480, width=640, exposure=1.0)
     front_cam = WristCamera(env.model, "front_cam", height=480, width=640, exposure=1.0)
-    scene_cam = WristCamera(env.model, "scene_cam", height=480, width=640, exposure=1.0)
 
     # Initialize LeRobot Dataset Recorder (480x640 Resolution)
     recorder = LeRobotDatasetRecorder(
@@ -198,14 +199,21 @@ def auto_collect_dataset(
 
             def record_and_step(target_pos: np.ndarray, gripper_val: float, steps: int):
                 for _ in range(steps):
-                    # Capture Multi-Modal Step (Front Cam + Side Cam)
+                    # Capture Multi-Modal Step (Wrist Cam + Side Cam + Front Cam)
                     state = np.concatenate([env.data.qpos[:N_ARM_JOINTS], [env.data.qpos[N_ARM_JOINTS]]])
                     action = np.concatenate([env.data.ctrl[:N_ARM_JOINTS], [gripper_val]])
 
+                    w_rgb = wrist_cam.get_rgb(env.data)
+                    s_rgb = side_cam.get_rgb(env.data)
                     f_rgb = front_cam.get_rgb(env.data)
-                    s_rgb = scene_cam.get_rgb(env.data)
 
-                    recorder.record_step(state, action, f_rgb, extrinsic_rgb=s_rgb)
+                    recorder.record_step(
+                        state=state,
+                        action=action,
+                        wrist_rgb=w_rgb,
+                        extrinsic_rgb=s_rgb,
+                        topdown_rgb=f_rgb,
+                    )
 
                     # Compute IK and step physics
                     agent.step_ik(target_pos, gripper_ctrl=gripper_val)
